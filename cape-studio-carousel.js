@@ -72,7 +72,12 @@ var AUTOPLAY   = 6;      /* secondi su ogni opera prima del cambio automatico  *
 var SLIDE_DUR  = 0.9;    /* durata della scivolata dell'immagine (s)           */
 
 /* --- la deformazione del foglio ----------------------------------------- */
-var SKEW       = 8;      /* skew massimo in gradi, al picco di velocita'      */
+var SKEW       = 5;      /* skew massimo in gradi, al picco di velocita'.
+                           Lo skew e' angolare: sposta di altezza*tan(SKEW),
+                           quindi lo scarto in pixel NON si riduce quando la
+                           colonna si stringe. Su un palco stretto lo stesso
+                           angolo si legge molto piu' inclinato: se cambi la
+                           larghezza della colonna, ritocca questo.           */
 var IN_SCALE   = 1.45;   /* zoom dell'immagine che entra, all'inizio          */
 var IN_SHIFT   = 22;     /* sfasamento dell'immagine che entra, in % di stage */
 var OUT_SCALE  = 1.5;    /* zoom dell'immagine che esce, alla fine            */
@@ -109,7 +114,13 @@ var SWAP_AT           = 0.73;  /* quando i contenuti vengono sostituiti.
 /* --- il markup che lo script si aspetta --------------------------------- */
 var ROOT_SEL     = '[data-studio]';
 var REQUIRED     = ['headline','stage','pageA','pageB','stats','info','desc'];
-var HEADLINE_MAX = 0.28;       /* il titolo non supera il 28% della sezione   */
+var HEADLINE_MAX = 0.52;       /* quanta parte della sezione puo' occupare il
+                                  titolo, su una riga. E' solo il default: se
+                                  .studio-hero definisce --studio-headline-max
+                                  in CSS, vince quello. Cosi' il limite si
+                                  regola per breakpoint dal foglio di stile,
+                                  dove stanno le decisioni di layout.        */
+var HEADLINE_VAR = '--studio-headline-max';
 
 /* ========================================================================== */
 
@@ -492,6 +503,11 @@ function init(){
 
   /* Il titolo piu' lungo del set detta il corpo: cosi' non cambia da un'opera
      all'altra. Si misura fuori schermo, con gli stessi attributi tipografici. */
+  function headlineMax(){
+    var v = parseFloat(getComputedStyle(root).getPropertyValue(HEADLINE_VAR));
+    return (v > 0 && v <= 1) ? v : HEADLINE_MAX;
+  }
+
   function fitHeadline(){
     var host = el.headline;
     host.style.fontSize = '';
@@ -514,7 +530,7 @@ function init(){
     });
     probe.remove();
 
-    var room = HEADLINE_MAX * root.clientWidth;
+    var room = headlineMax() * root.clientWidth;
     if(widest > room) host.style.fontSize = (size * room / widest) + 'px';
   }
 

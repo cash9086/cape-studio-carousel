@@ -77,7 +77,7 @@ Se `dimensions` finisce con `²` il carattere diventa un vero `<sup>2</sup>`.
 
 | Manopola | Default | Cosa fa |
 |---|---|---|
-| `SKEW` | `8` | skew massimo in gradi, **al picco di velocità** |
+| `SKEW` | `5` | skew massimo in gradi, **al picco di velocità** |
 | `IN_SCALE` / `IN_SHIFT` | `1.45` / `22` | zoom e sfasamento dell'immagine che entra |
 | `OUT_SCALE` / `OUT_SHIFT` | `1.5` / `-26` | zoom e sfasamento dell'immagine che esce |
 
@@ -89,6 +89,13 @@ GSAP: a GSAP la derivata non si può chiedere.
 
 Alzare `SKEW` sopra ~14 fa sembrare la pagina di gomma. Sotto 4 la
 deformazione non si legge e tanto vale togliere il `cancel`.
+
+**Lo skew va riletto ogni volta che cambia la larghezza della colonna.** È
+angolare: sposta di `altezza × tan(SKEW)`, quindi lo scarto in pixel non si
+riduce quando il palco si stringe — cambia solo il suo rapporto con la
+larghezza dell'elemento. Su una colonna larga la metà, lo stesso angolo si
+legge circa il doppio. Traslazioni e scale invece sono espresse in percentuale
+di `stageW` e si riscalano da sole.
 
 ### Il titolo, lettera per lettera
 
@@ -119,10 +126,26 @@ cadrebbe naturalmente, a qualunque larghezza.
 
 ### Il titolo che non balla
 
-`HEADLINE_MAX` (`0.28`) — il titolo non supera il 28% della larghezza della
-sezione. La misura si fa sul titolo **più lungo del set**, fuori schermo, con
-gli stessi attributi tipografici: così il corpo non cambia da un'opera
-all'altra. Si rifà a ogni resize e a font caricati.
+`HEADLINE_MAX` (`0.52`) — quanta parte della larghezza della sezione può
+occupare il titolo, su una riga. La misura si fa sul titolo **più lungo del
+set**, fuori schermo, con gli stessi attributi tipografici: così il corpo non
+cambia da un'opera all'altra. Si rifà a ogni resize e a font caricati.
+
+Il valore nel file è solo il default. Se `.studio-hero` definisce la custom
+property `--studio-headline-max`, **vince quella** — così il limite si regola
+per breakpoint dal foglio di stile, dove stanno le decisioni di layout, invece
+che da una costante JavaScript:
+
+```css
+.studio-hero{ --studio-headline-max:.52; }
+@media (max-width:991px){ .studio-hero{ --studio-headline-max:.86; } }
+```
+
+Valori fuori da `0 < v <= 1`, o property assente, ricadono sul default.
+
+Il titolo sta su **una riga sola**: è un vincolo editoriale, non tecnico. La
+dimensione è dettata dal titolo più lungo, quindi un titolo molto più lungo
+degli altri rimpicciolisce **tutti**. Tenerli di lunghezza simile.
 
 ---
 
