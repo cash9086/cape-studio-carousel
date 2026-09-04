@@ -64,7 +64,7 @@ var ARTWORKS = [
     desc:       'Sweeping magenta washes create a luminous field where a fragile charcoal gesture surfaces and dissolves, anchored by a pool of deep ultramarine.',
     price:      '€ POA',
     cta:        'VIEW ARTWORK',
-    img:        'https://cdn.prod.website-files.com/696e3bc5b446ecf721fa3bde/6a91a227ba3b60021d7608f9_watermark-removed-Gemini_Generated_Image_jm5yh7jm5yh7jm5y.jpg'
+    img:        'https://cdn.prod.website-files.com/696e3bc5b446ecf721fa3bde/6a9adc907a2e5ceffd414de2_watermark-removed-Gemini_Generated_Image_fspiyvfspiyvfspi.jpg'
   }
 ];
 
