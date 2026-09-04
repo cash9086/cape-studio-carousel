@@ -40,7 +40,7 @@ obbligatori lo script si ferma e scrive in console quale.
 | `[data-page="a"]` / `[data-page="b"]` | sì | le due pagine che si scambiano il ruolo |
 | `.studio-stage__cancel` | sì (dentro ogni pagina) | annulla lo skew: la cornice si deforma, l'immagine no |
 | `.studio-stage__img` | sì (dentro ogni cancel) | riceve l'immagine come `background-image` |
-| `.studio-stats` | sì | blocco anno / tecnica / dimensioni |
+| `.studio-stats` | no | blocco anno / tecnica / dimensioni. Se manca, quel gruppo di righe non viene animato e il resto funziona |
 | `.studio-info` | sì | blocco descrizione / prezzo / bottone |
 | `[data-field="desc"]` | sì | la descrizione, spezzata in righe vere |
 | `[data-field="year"]`, `[data-field="dimensions"]`, `[data-field="medium"]`, `[data-field="price"]`, `[data-field="cta"]` | no | campi di testo |

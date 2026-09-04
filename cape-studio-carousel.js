@@ -113,7 +113,7 @@ var SWAP_AT           = 0.73;  /* quando i contenuti vengono sostituiti.
 
 /* --- il markup che lo script si aspetta --------------------------------- */
 var ROOT_SEL     = '[data-studio]';
-var REQUIRED     = ['headline','stage','pageA','pageB','stats','info','desc'];
+var REQUIRED     = ['headline','stage','pageA','pageB','info','desc'];
 var HEADLINE_MAX = 0.52;       /* quanta parte della sezione puo' occupare il
                                   titolo, su una riga. E' solo il default: se
                                   .studio-hero definisce --studio-headline-max
@@ -326,16 +326,20 @@ function init(){
   }
 
   function collectLines(i){
-    ['studio-stats__label--3', 'studio-stats__value--dim2'].forEach(function(cls){
-      var node = el.stats.querySelector('.' + cls);
-      if(node) node.classList.add('studio-line');
-    });
+    if(el.stats){
+      ['studio-stats__label--3', 'studio-stats__value--dim2'].forEach(function(cls){
+        var node = el.stats.querySelector('.' + cls);
+        if(node) node.classList.add('studio-line');
+      });
+    }
 
     var btn = el.info.querySelector('.white-bubble-btn, .studio-btn, a, button');
 
     return {
-      stats: Array.prototype.slice.call(el.stats.querySelectorAll('.studio-line'))
-                  .map(wrapInner).filter(Boolean),
+      stats: el.stats
+        ? Array.prototype.slice.call(el.stats.querySelectorAll('.studio-line'))
+              .map(wrapInner).filter(Boolean)
+        : [],
       info:  renderDescLines(descLines[i])
                   .map(wrapInner)
                   .concat([ el.price ? wrapInner(el.price) : null,
