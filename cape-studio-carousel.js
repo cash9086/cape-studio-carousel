@@ -436,11 +436,17 @@ function init(){
       stagger: { each: TITLE_OUT_STAGGER, from: from }
     }, TITLE_OUT_AT);
 
-    tl.to(oldLines.stats, {
+    /* La colonna delle statistiche puo' non esserci: e' un blocco che il
+       Designer puo' tenere nascosto, e Webflow gli elementi nascosti non li
+       pubblica proprio. Senza questa guardia GSAP riceve un array vuoto e
+       avvisa a ogni transizione — due warning per giro, che dopo qualche
+       minuto di autoplay diventano una console illeggibile. Il carosello
+       deve funzionare con o senza quella colonna. */
+    if(oldLines.stats.length) tl.to(oldLines.stats, {
       yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR, ease: 'power4.inOut', stagger: LINES_OUT_STAGGER
     }, LINES_OUT_AT);
 
-    tl.to(oldLines.info, {
+    if(oldLines.info.length) tl.to(oldLines.info, {
       yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR, ease: 'power4.inOut', stagger: LINES_OUT_STAGGER
     }, LINES_OUT_AT);
 
@@ -453,7 +459,8 @@ function init(){
         transformPerspective: PERSPECTIVE,
         transformOrigin: '0% 50%'
       });
-      gsap.set([].concat(lines.stats, lines.info), { yPercent: LINES_IN_Y, opacity: 1 });
+      var allLines = [].concat(lines.stats, lines.info);
+      if(allLines.length) gsap.set(allLines, { yPercent: LINES_IN_Y, opacity: 1 });
 
       var back_in = gsap.timeline({
         onComplete: function(){
@@ -472,13 +479,13 @@ function init(){
         stagger: { each: TITLE_IN_STAGGER, from: from }
       }, 0);
 
-      back_in.fromTo(lines.stats,
+      if(lines.stats.length) back_in.fromTo(lines.stats,
         { yPercent: LINES_IN_Y },
         { yPercent: 0, duration: LINES_IN_DUR, ease: 'power4.out', stagger: STATS_IN_STAGGER,
           immediateRender: false, overwrite: 'auto' },
         STATS_IN_AT - SWAP_AT);
 
-      back_in.fromTo(lines.info,
+      if(lines.info.length) back_in.fromTo(lines.info,
         { yPercent: LINES_IN_Y },
         { yPercent: 0, duration: LINES_IN_DUR, ease: 'power4.out', stagger: INFO_IN_STAGGER,
           immediateRender: false, overwrite: 'auto' },
