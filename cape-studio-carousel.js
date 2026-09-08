@@ -216,6 +216,7 @@ function init(){
   /* Contenuti prestati da altre sezioni della pagina: si aggiungono in coda
      alle opere e da lì in poi sono indistinguibili da una di esse — stesse
      misure, stesse righe, stesse animazioni. Vedi window.capeStudio in fondo. */
+  var prestato = false;   /* il blocco e' in prestito alla sezione sotto */
   var EXTRA = [];
   function opera(i){ return i < ARTWORKS.length ? ARTWORKS[i] : EXTRA[i - ARTWORKS.length]; }
   function tutte(){ return ARTWORKS.concat(EXTRA); }
@@ -355,7 +356,7 @@ function init(){
     };
   }
 
-  function fill(i){
+  function fill(i, senzaTitolo){
     var art = opera(i);
     if(!art) return;
 
@@ -377,7 +378,7 @@ function init(){
     if(el.price){ el.price.textContent = art.price; el.price.classList.add('studio-win'); }
     if(el.cta)    el.cta.textContent = art.cta;
 
-    chars = splitTitle(art.title);
+    if(!senzaTitolo) chars = splitTitle(art.title);
     lines = collectLines(i);
   }
 
@@ -522,7 +523,12 @@ function init(){
     if(autoTimer) autoTimer.kill();
     if(fillTween) fillTween.kill();
     if(el.fill) gsap.set(el.fill, { scaleX:0 });
-    if(reduced) return;
+    /* Mentre il blocco e' prestato al reel l'autoplay deve restare fermo.
+       Se si carica la pagina gia' dentro il reel, il prestito avviene subito
+       ma le immagini finiscono di scaricarsi dopo, e la coda del preload
+       faceva ripartire l'autoplay lo stesso: sei secondi dopo arrivava
+       un'opera a sovrascrivere il testo del reel. */
+    if(reduced || prestato) return;
 
     if(el.fill) fillTween = gsap.to(el.fill, { scaleX:1, duration:AUTOPLAY, ease:'none' });
     autoTimer = gsap.delayedCall(AUTOPLAY, function(){ go(1); });
@@ -604,7 +610,12 @@ function init(){
     stageW = el.stage.offsetWidth || 1;
     fitHeadline();
     measureDesc();
-    if(!busy) fill(index);
+    /* index e' l'opera corrente, ma se il blocco e' prestato al reel il
+       contenuto giusto e' quello prestato. Senza questa distinzione bastava
+       che i font finissero di caricare — cosa che succede dopo il prestito,
+       se apri la pagina gia' dentro il reel — perche' fill() riportasse su
+       il testo dell'opera. */
+    if(!busy) fill(prestato ? ARTWORKS.length : index);
   }
 
   onClick(el.next, 1);
@@ -670,8 +681,6 @@ function init(){
      Il blocco resta figlio di .studio-hero anche mentre viaggia: le regole
      .studio-hero.is-busy ... che ritagliano le finestre delle righe sono
      selettori di discendenza, e devono continuare a valere. */
-  var prestato = false;
-
   function fermaAuto(){
     if(autoTimer) autoTimer.kill();
     if(fillTween) fillTween.kill();
@@ -680,21 +689,251 @@ function init(){
     if(el.fill) gsap.set(el.fill, { scaleX:0 });
   }
 
-  function vaiA(i, dir, onDone){
+  /* ── la tendina sul titolo ───────────────────────────────────────────────
+     Nel passaggio al reel il titolo non esce per farne entrare un altro:
+     cambia sul posto, lettera per lettera. Ognuna sale dietro il proprio
+     bordo e la nuova la segue da sotto.
+
+     Il punto delicato sono gli spazi. "WHISPER IN THE VOID" e "SHOP OUR
+     PRODUCTS" hanno le parole in posizioni diverse, quindi accoppiare la
+     lettera i della vecchia con la i della nuova infila gli spazi in mezzo
+     alle parole. Invece ogni casella si allarga o si stringe passando dalla
+     misura della lettera vecchia a quella della nuova: agli estremi della
+     corsa le parole tornano dritte da sole. */
+  var host = el.headline;   /* usata da passiDi e dalla tendina */
+
+  var RITMO       = 1;      /* moltiplica TUTTA la consegna. 0.8 la accorcia
+                               di un quinto, 1.2 la allunga. È la manopola da
+                               girare per prima se sembra lenta o frettolosa. */
+  var TEND_DUR    = 0.34;   /* s di corsa della singola lettera            */
+  var TEND_ONDA   = 0.26;   /* sfasamento COMPLESSIVO, spalmato su tutte le
+                               lettere — non per lettera. Con un ritardo
+                               fisso a lettera un titolo lungo ci metteva il
+                               doppio di uno corto, ed è il motivo per cui
+                               sembrava partire in ritardo e a caso.        */
+  var TEND_STACCO = 0.50;   /* dove finisce l'uscita e comincia l'entrata  */
+
+  /* Le tre fasi si accavallano invece di aspettarsi: il titolo parte mentre
+     le righe stanno ancora uscendo, e le righe nuove rientrano mentre
+     l'ultima lettera sta ancora arrivando. Si legge lo stesso — perché a
+     muoversi sono zone diverse dello schermo — e dura molto meno. */
+  var TITOLO_AT   = 0.20;   /* quando parte il titolo, dentro l'uscita righe */
+  var RIGHE_SOTTO = 0.12;   /* di quanto le righe nuove anticipano la fine   */
+
+  function cl01(v){ return v < 0 ? 0 : (v > 1 ? 1 : v); }
+  function dolce(t){ return 1 - Math.pow(1 - t, 3); }   /* come power3.out */
+
+  /* Le larghezze non si stimano carattere per carattere: si LEGGONO dal
+     titolo davvero impaginato. Sommare i glifi non riproduce il kerning, il
+     letter-spacing negativo né il margine fra le parole, e il titolo
+     scattava di lato appena partiva la tendina.
+     Qui si misura la struttura normale — quella che splitTitle() produce —
+     una volta per il testo vecchio e una per il nuovo, e si prende come
+     larghezza di ogni casella la distanza fra una lettera e la successiva.
+     Cosi' i due estremi della corsa sono esatti per costruzione. */
+  function passiDi(testo, gia){
+    var lettere = gia || splitTitle(testo);
+    var bordo = [], k = 0, i, r;
+
+    for(i = 0; i < testo.length; i++){
+      if(testo.charAt(i) === ' '){ bordo.push(null); continue; }
+      r = lettere[k++].getBoundingClientRect();
+      bordo.push(r);
+    }
+
+    /* Uno spazio prende il bordo della lettera che lo segue: cosi' la sua
+       casella finisce per misurare esattamente lo stacco fra le parole. */
+    var sin = new Array(testo.length), prossimo = null;
+    for(i = testo.length - 1; i >= 0; i--){
+      if(bordo[i]) prossimo = bordo[i].left;
+      sin[i] = prossimo;
+    }
+
+    var fondo = host.getBoundingClientRect().right;
+    var largo = [];
+    for(i = 0; i < testo.length; i++){
+      var a = sin[i];
+      var b = (i + 1 < testo.length) ? sin[i + 1] : null;
+      if(a === null){ largo.push(0); continue; }
+      if(b === null || b < a) b = bordo[i] ? bordo[i].right : fondo;  /* fine riga o fine titolo */
+      largo.push(Math.max(0, b - a));
+    }
+    return largo;
+  }
+
+  function corsaTendina(){ return (TEND_DUR + TEND_ONDA) * RITMO; }
+
+  function tendinaTitolo(nuovo, onDone){
+    var vecchio = host.getAttribute('aria-label') || host.textContent || '';
+
+    /* L'altezza della finestra e' quella di UNA riga, non del blocco: se il
+       titolo va a capo, il blocco ne misura due e ogni casella verrebbe alta
+       il doppio, con la lettera che non esce piu' dall'inquadratura. */
+    var cs0 = getComputedStyle(host);
+    var alta = parseFloat(cs0.lineHeight);
+    if(!alta) alta = (parseFloat(cs0.fontSize) || 0) * 1.2;
+
+    var largoV = passiDi(vecchio, chars);   /* il vecchio e' gia' impaginato */
+    var largoA = passiDi(nuovo);            /* il nuovo lo impagina qui      */
+
+    host.textContent = '';
+    host.setAttribute('aria-label', nuovo);
+
+    var n = Math.max(vecchio.length, nuovo.length), celle = [], i;
+    var parola = null;
+
+    for(i = 0; i < n; i++){
+      var v = vecchio.charAt(i), a = nuovo.charAt(i);
+
+      if(a === ' ' || a === ''){
+        parola = null;                     /* qui la riga puo' spezzarsi */
+      } else if(!parola){
+        parola = document.createElement('span');
+        parola.className = 'studio-gruppo';
+        parola.setAttribute('aria-hidden', 'true');
+        host.appendChild(parola);
+      }
+
+      var box = document.createElement('span');
+      box.className = 'studio-cella';
+      box.setAttribute('aria-hidden', 'true');
+      box.style.height = alta + 'px';
+
+      var gv = document.createElement('span');
+      gv.className = 'studio-g'; gv.textContent = v;
+      var ga = document.createElement('span');
+      ga.className = 'studio-g'; ga.textContent = a;
+
+      box.appendChild(gv); box.appendChild(ga);
+      (parola || host).appendChild(box);
+
+      celle.push({
+        box: box, v: gv, a: ga,
+        wv: largoV[i] || 0,
+        wa: largoA[i] || 0
+      });
+    }
+
+    function passo(t){
+      for(var k = 0; k < celle.length; k++){
+        var c = celle[k];
+        var q  = cl01((t - k * lag) / TEND_DUR);   /* t già in secondi di corsa */
+        /* dentro la casella le due lettere non si incrociano: la vecchia
+           esce tutta, la finestra resta vuota un istante, poi entra la nuova */
+        var pv = dolce(cl01(q / TEND_STACCO));
+        var pn = dolce(cl01((q - TEND_STACCO) / (1 - TEND_STACCO)));
+        /* la larghezza invece segue la corsa intera, se no le lettere
+           accanto scatterebbero di lato a meta' strada */
+        var w  = dolce(q);
+        c.box.style.width   = (c.wv + (c.wa - c.wv) * w).toFixed(2) + 'px';
+        c.v.style.transform = 'translateY(' + (-pv * 100).toFixed(2) + '%)';
+        c.a.style.transform = 'translateY(' + ((1 - pn) * 100).toFixed(2) + '%)';
+      }
+    }
+
+    /* Lo sfasamento si divide fra le lettere che ci sono: la corsa totale
+       del titolo è sempre la stessa, che sia lungo o corto. */
+    var lag = n > 1 ? TEND_ONDA / (n - 1) : 0;
+    var CORSA = TEND_DUR + TEND_ONDA;
+    var prog = { t:0 };
+    passo(0);
+
+    return gsap.to(prog, {
+      t: 1,
+      duration: CORSA * RITMO,
+      ease: 'none',
+      onUpdate: function(){ passo(prog.t * CORSA); },
+      onComplete: function(){
+        /* si torna alla struttura di sempre: da qui in poi il titolo e' di
+           nuovo fatto di .studio-char, e go() lo sa animare come prima */
+        chars = splitTitle(nuovo);
+        gsap.set(chars, {
+          rotationY: 0, opacity: 1,
+          transformPerspective: PERSPECTIVE, transformOrigin: '0% 50%'
+        });
+        if(onDone) onDone();
+      }
+    });
+  }
+
+  /* Le tre fasi si accavallano appena, invece di aspettarsi in fila: e' la
+     differenza fra una consegna che dura 2,2 secondi e una che ne dura 1,4.
+     Si legge lo stesso perche' a muoversi sono zone diverse dello schermo —
+     prima le righe in basso, poi il titolo, poi di nuovo le righe. */
+  function vaiA(i, dir, onDone, secco){
     if(busy) return null;
     busy = true;
     root.classList.add('is-busy');
 
-    var tl = gsap.timeline();
-    esce(tl, chars, lines, dir);
-    tl.call(function(){
+    /* Al caricamento non c'e' niente da raccontare: se la pagina apre gia'
+       dentro il reel, il testo giusto ci deve essere e basta. Animare un
+       cambio che nessuno ha visto cominciare sembra solo un difetto. */
+    if(secco){
       fill(i);
-      entra(dir, function(){
+      gsap.set(chars, {
+        rotationY: 0, opacity: 1,
+        transformPerspective: PERSPECTIVE, transformOrigin: '0% 50%'
+      });
+      var subito = [].concat(lines.stats, lines.info);
+      if(subito.length) gsap.set(subito, { yPercent: 0, opacity: 1 });
+      root.classList.remove('is-busy');
+      busy = false;
+      if(onDone) onDone();
+      return null;
+    }
+
+    var vecchie = lines;
+    var R = RITMO;
+
+    var tl = gsap.timeline({
+      onComplete: function(){
         root.classList.remove('is-busy');
         busy = false;
         if(onDone) onDone();
-      });
-    }, null, SWAP_AT);
+      }
+    });
+
+    /* 1. le righe di adesso se ne vanno dietro il proprio bordo */
+    if(vecchie.stats.length) tl.to(vecchie.stats, {
+      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR * R,
+      ease: 'power4.inOut', stagger: LINES_OUT_STAGGER * R
+    }, 0);
+    if(vecchie.info.length) tl.to(vecchie.info, {
+      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR * R,
+      ease: 'power4.inOut', stagger: LINES_OUT_STAGGER * R
+    }, 0);
+
+    /* 2. il titolo gira, gia' mentre le righe stanno uscendo */
+    var partenza = TITOLO_AT * R;
+    tl.call(function(){ tendinaTitolo(opera(i).title); }, null, partenza);
+
+    /* 3. le righe nuove rientrano mentre l'ultima lettera sta ancora
+          arrivando. Niente scarto fra colonne qui: nella consegna le
+          statistiche sono nascoste, quel ritardo lascerebbe solo un buco. */
+    var rientro = Math.max(0, partenza + corsaTendina() - RIGHE_SOTTO * R);
+
+    tl.call(function(){
+      fill(i, true);   /* righe nuove; il titolo l'ha gia' messo la tendina */
+
+      var tutte = [].concat(lines.stats, lines.info);
+      if(tutte.length) gsap.set(tutte, { yPercent: LINES_IN_Y, opacity: 1 });
+
+      if(lines.stats.length) gsap.fromTo(lines.stats,
+        { yPercent: LINES_IN_Y },
+        { yPercent: 0, duration: LINES_IN_DUR * R, ease: 'power4.out',
+          stagger: STATS_IN_STAGGER * R, immediateRender: false, overwrite: 'auto' });
+
+      if(lines.info.length) gsap.fromTo(lines.info,
+        { yPercent: LINES_IN_Y },
+        { yPercent: 0, duration: LINES_IN_DUR * R, ease: 'power4.out',
+          stagger: INFO_IN_STAGGER * R, immediateRender: false, overwrite: 'auto' });
+    }, null, rientro);
+
+    /* 4. la timeline resta viva finche' anche le righe sono entrate, se no
+          busy tornerebbe falso a meta' e l'autoplay potrebbe rientrare */
+    var coda = (LINES_IN_DUR + INFO_IN_STAGGER * 3) * R;
+    tl.to({}, { duration: coda }, rientro);
+
     return tl;
   }
 
@@ -713,20 +952,20 @@ function init(){
     },
 
     /* Esce l'opera, entra il contenuto registrato. */
-    presta: function(dir){
+    presta: function(dir, secco){
       if(prestato || busy || !EXTRA.length) return null;
       fermaAuto();
       prestato = true;
-      return vaiA(ARTWORKS.length, dir === undefined ? 1 : dir);
+      return vaiA(ARTWORKS.length, dir === undefined ? 1 : dir, null, secco);
     },
 
     /* Esce il contenuto prestato, rientra l'opera, riparte l'autoplay. */
-    restituisci: function(dir){
+    restituisci: function(dir, secco){
       if(!prestato || busy) return null;
       prestato = false;
       return vaiA(index, dir === undefined ? -1 : dir, function(){
         if(!reduced) restartAutoplay();
-      });
+      }, secco);
     }
   };
 
