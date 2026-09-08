@@ -705,8 +705,8 @@ function init(){
   var RITMO       = 1;      /* moltiplica TUTTA la consegna. 0.8 la accorcia
                                di un quinto, 1.2 la allunga. È la manopola da
                                girare per prima se sembra lenta o frettolosa. */
-  var TEND_DUR    = 0.34;   /* s di corsa della singola lettera            */
-  var TEND_ONDA   = 0.26;   /* sfasamento COMPLESSIVO, spalmato su tutte le
+  var TEND_DUR    = 0.44;   /* s di corsa della singola lettera            */
+  var TEND_ONDA   = 0.30;   /* sfasamento COMPLESSIVO, spalmato su tutte le
                                lettere — non per lettera. Con un ritardo
                                fisso a lettera un titolo lungo ci metteva il
                                doppio di uno corto, ed è il motivo per cui
