@@ -213,6 +213,13 @@ function init(){
     };
   }
 
+  /* Contenuti prestati da altre sezioni della pagina: si aggiungono in coda
+     alle opere e da lì in poi sono indistinguibili da una di esse — stesse
+     misure, stesse righe, stesse animazioni. Vedi window.capeStudio in fondo. */
+  var EXTRA = [];
+  function opera(i){ return i < ARTWORKS.length ? ARTWORKS[i] : EXTRA[i - ARTWORKS.length]; }
+  function tutte(){ return ARTWORKS.concat(EXTRA); }
+
   var front = makePage(el.pageA),
       back  = makePage(el.pageB),
       index = 0,
@@ -229,7 +236,7 @@ function init(){
   /* Misura dove il testo va a capo davvero, prima di spezzarlo in righe. */
   function measureDesc(){
     var host = el.desc;
-    descLines = ARTWORKS.map(function(art){
+    descLines = tutte().map(function(art){
       host.textContent = '';
       var words = art.desc.trim().split(/\s+/);
       var probes = words.map(function(word, i){
@@ -349,7 +356,8 @@ function init(){
   }
 
   function fill(i){
-    var art = ARTWORKS[i];
+    var art = opera(i);
+    if(!art) return;
 
     if(el.year) el.year.textContent = art.year;
 
@@ -400,6 +408,73 @@ function init(){
     setImg(front, q * stageW * (OUT_SHIFT / 100) * dir, 1 + (OUT_SCALE - 1) * q);
   }
 
+  /* Uscita ed entrata del testo, estratte da go() perché possa chiamarle
+     anche chi non sta cambiando opera. dir dà il verso: da che parte se ne
+     vanno le lettere e da che parte rientrano. */
+  function esce(tl, vecchiChars, vecchieLines, dir){
+    var from = dir > 0 ? 'start' : 'end';
+
+    tl.to(vecchiChars, {
+      rotationY: TITLE_OUT_ROT * dir,
+      opacity: 0,
+      duration: TITLE_OUT_DUR,
+      ease: 'power1.in',
+      stagger: { each: TITLE_OUT_STAGGER, from: from }
+    }, TITLE_OUT_AT);
+
+    /* La colonna delle statistiche puo' non esserci: e' un blocco che il
+       Designer puo' tenere nascosto, e Webflow gli elementi nascosti non li
+       pubblica proprio. Senza questa guardia GSAP riceve un array vuoto e
+       avvisa a ogni transizione — due warning per giro, che dopo qualche
+       minuto di autoplay diventano una console illeggibile. Il carosello
+       deve funzionare con o senza quella colonna. */
+    if(vecchieLines.stats.length) tl.to(vecchieLines.stats, {
+      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR, ease: 'power4.inOut', stagger: LINES_OUT_STAGGER
+    }, LINES_OUT_AT);
+
+    if(vecchieLines.info.length) tl.to(vecchieLines.info, {
+      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR, ease: 'power4.inOut', stagger: LINES_OUT_STAGGER
+    }, LINES_OUT_AT);
+  }
+
+  /* Va chiamata dopo fill(): legge chars e lines appena ricostruiti. */
+  function entra(dir, onDone){
+    var from = dir > 0 ? 'start' : 'end';
+
+    gsap.set(chars, {
+      rotationY: TITLE_IN_ROT * dir,
+      opacity: 0,
+      transformPerspective: PERSPECTIVE,
+      transformOrigin: '0% 50%'
+    });
+    var allLines = [].concat(lines.stats, lines.info);
+    if(allLines.length) gsap.set(allLines, { yPercent: LINES_IN_Y, opacity: 1 });
+
+    var tl = gsap.timeline({ onComplete: onDone });
+
+    tl.to(chars, {
+      rotationY: 0,
+      opacity: 1,
+      duration: TITLE_IN_DUR,
+      ease: 'power3.out',
+      stagger: { each: TITLE_IN_STAGGER, from: from }
+    }, 0);
+
+    if(lines.stats.length) tl.fromTo(lines.stats,
+      { yPercent: LINES_IN_Y },
+      { yPercent: 0, duration: LINES_IN_DUR, ease: 'power4.out', stagger: STATS_IN_STAGGER,
+        immediateRender: false, overwrite: 'auto' },
+      STATS_IN_AT - SWAP_AT);
+
+    if(lines.info.length) tl.fromTo(lines.info,
+      { yPercent: LINES_IN_Y },
+      { yPercent: 0, duration: LINES_IN_DUR, ease: 'power4.out', stagger: INFO_IN_STAGGER,
+        immediateRender: false, overwrite: 'auto' },
+      INFO_IN_AT - SWAP_AT);
+
+    return tl;
+  }
+
   function go(dir){
     if(busy) return;
     busy = true;
@@ -416,7 +491,6 @@ function init(){
     setImg(back, stageW * (IN_SHIFT / 100) * dir, IN_SCALE);
     root.classList.add('is-busy');
 
-    var from = dir > 0 ? 'start' : 'end';
     var prog = { t:0 };
     var tl   = gsap.timeline();
 
@@ -428,68 +502,16 @@ function init(){
       onComplete: function(){ resetPage(back); }
     }, 0);
 
-    tl.to(oldChars, {
-      rotationY: TITLE_OUT_ROT * dir,
-      opacity: 0,
-      duration: TITLE_OUT_DUR,
-      ease: 'power1.in',
-      stagger: { each: TITLE_OUT_STAGGER, from: from }
-    }, TITLE_OUT_AT);
-
-    /* La colonna delle statistiche puo' non esserci: e' un blocco che il
-       Designer puo' tenere nascosto, e Webflow gli elementi nascosti non li
-       pubblica proprio. Senza questa guardia GSAP riceve un array vuoto e
-       avvisa a ogni transizione — due warning per giro, che dopo qualche
-       minuto di autoplay diventano una console illeggibile. Il carosello
-       deve funzionare con o senza quella colonna. */
-    if(oldLines.stats.length) tl.to(oldLines.stats, {
-      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR, ease: 'power4.inOut', stagger: LINES_OUT_STAGGER
-    }, LINES_OUT_AT);
-
-    if(oldLines.info.length) tl.to(oldLines.info, {
-      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR, ease: 'power4.inOut', stagger: LINES_OUT_STAGGER
-    }, LINES_OUT_AT);
+    esce(tl, oldChars, oldLines, dir);
 
     tl.call(function(){
       fill(nextIndex);
-
-      gsap.set(chars, {
-        rotationY: TITLE_IN_ROT * dir,
-        opacity: 0,
-        transformPerspective: PERSPECTIVE,
-        transformOrigin: '0% 50%'
+      entra(dir, function(){
+        index = nextIndex;
+        var swap = front; front = back; back = swap;
+        root.classList.remove('is-busy');
+        busy = false;
       });
-      var allLines = [].concat(lines.stats, lines.info);
-      if(allLines.length) gsap.set(allLines, { yPercent: LINES_IN_Y, opacity: 1 });
-
-      var back_in = gsap.timeline({
-        onComplete: function(){
-          index = nextIndex;
-          var swap = front; front = back; back = swap;
-          root.classList.remove('is-busy');
-          busy = false;
-        }
-      });
-
-      back_in.to(chars, {
-        rotationY: 0,
-        opacity: 1,
-        duration: TITLE_IN_DUR,
-        ease: 'power3.out',
-        stagger: { each: TITLE_IN_STAGGER, from: from }
-      }, 0);
-
-      if(lines.stats.length) back_in.fromTo(lines.stats,
-        { yPercent: LINES_IN_Y },
-        { yPercent: 0, duration: LINES_IN_DUR, ease: 'power4.out', stagger: STATS_IN_STAGGER,
-          immediateRender: false, overwrite: 'auto' },
-        STATS_IN_AT - SWAP_AT);
-
-      if(lines.info.length) back_in.fromTo(lines.info,
-        { yPercent: LINES_IN_Y },
-        { yPercent: 0, duration: LINES_IN_DUR, ease: 'power4.out', stagger: INFO_IN_STAGGER,
-          immediateRender: false, overwrite: 'auto' },
-        INFO_IN_AT - SWAP_AT);
     }, null, SWAP_AT);
 
     setPager(nextIndex);
@@ -535,7 +557,7 @@ function init(){
     document.body.appendChild(probe);
 
     var widest = 0;
-    ARTWORKS.forEach(function(art){
+    tutte().forEach(function(art){
       probe.textContent = art.title;
       widest = Math.max(widest, probe.offsetWidth);
     });
@@ -634,6 +656,81 @@ function init(){
   });
 
   if(document.fonts && document.fonts.ready) document.fonts.ready.then(remeasure);
+
+
+  /* ── il blocco in prestito ────────────────────────────────────────────────
+     La sezione sotto vuole lo stesso blocco di testo: stesso nodo, stesse
+     animazioni, contenuto diverso. Invece di rifargliele, gliele si presta.
+
+     Il contenuto va REGISTRATO una volta sola, da fermi: registra() rimisura
+     dove va a capo la descrizione, e per farlo deve svuotare il paragrafo —
+     cosa che a metà di una transizione cancellerebbe le righe in volo.
+     Da lì in poi presta() e restituisci() sono solo animazione.
+
+     Il blocco resta figlio di .studio-hero anche mentre viaggia: le regole
+     .studio-hero.is-busy ... che ritagliano le finestre delle righe sono
+     selettori di discendenza, e devono continuare a valere. */
+  var prestato = false;
+
+  function fermaAuto(){
+    if(autoTimer) autoTimer.kill();
+    if(fillTween) fillTween.kill();
+    autoTimer = null;
+    fillTween = null;
+    if(el.fill) gsap.set(el.fill, { scaleX:0 });
+  }
+
+  function vaiA(i, dir, onDone){
+    if(busy) return null;
+    busy = true;
+    root.classList.add('is-busy');
+
+    var tl = gsap.timeline();
+    esce(tl, chars, lines, dir);
+    tl.call(function(){
+      fill(i);
+      entra(dir, function(){
+        root.classList.remove('is-busy');
+        busy = false;
+        if(onDone) onDone();
+      });
+    }, null, SWAP_AT);
+    return tl;
+  }
+
+  window.capeStudio = {
+    nodo:     el.info,
+    occupato: function(){ return busy; },
+    inPrestito: function(){ return prestato; },
+
+    /* { title, desc, cta, price } — da chiamare a riposo, una volta. */
+    registra: function(contenuto){
+      if(!contenuto) return;
+      EXTRA = [contenuto];
+      measureDesc();
+      fitHeadline();
+      if(!busy) fill(index);
+    },
+
+    /* Esce l'opera, entra il contenuto registrato. */
+    presta: function(dir){
+      if(prestato || busy || !EXTRA.length) return null;
+      fermaAuto();
+      prestato = true;
+      return vaiA(ARTWORKS.length, dir === undefined ? 1 : dir);
+    },
+
+    /* Esce il contenuto prestato, rientra l'opera, riparte l'autoplay. */
+    restituisci: function(dir){
+      if(!prestato || busy) return null;
+      prestato = false;
+      return vaiA(index, dir === undefined ? -1 : dir, function(){
+        if(!reduced) restartAutoplay();
+      });
+    }
+  };
+
+  document.dispatchEvent(new CustomEvent('cape:studio-ready'));
 }
 
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
