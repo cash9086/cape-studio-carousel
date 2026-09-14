@@ -143,6 +143,7 @@ opera.
 | `GIRO_DUR` | `0.54` | secondi di mezzo giro della singola lettera |
 | `GIRO_ONDA` | `0.38` | sfasamento **complessivo** della cascata, spalmato su tutte le lettere — non per lettera. Così un titolo lungo e uno corto ci mettono lo stesso |
 | `GIRO_STACCO` | `34` | px verso chi guarda al culmine del giro. È una campana: zero ai due estremi, massimo a metà. A `0` resta il giro piatto |
+| `LARGO_DA` / `LARGO_A` | `65` / `115` | i **gradi** fra cui la casella cambia misura. Stretta attorno ai 90 perché lì la lettera è di taglio: allargarla apre spazi dentro la scritta mentre gira |
 | `TITOLO_AT` | `0.20` | quando parte il titolo, dentro l'uscita delle righe |
 | `RIGHE_PASSO` | `0.05` | secondi fra una riga della descrizione e la successiva |
 | `BOTTONE_DOPO` | `0.14` | secondi fra l'ultima riga e il bottone |
@@ -154,10 +155,23 @@ ha finito, e al rientro l'ordine si ripete. Per questo `collectLines()`
 espone `btn` a parte, oltre a tenerlo in coda a `info` — lì serve al cambio
 opera, dove invece le righe si muovono tutte in fila sola.
 
-Lo `0 < GIRO_STACCO` chiede il CSS delle facce (`.studio-cella`,
-`.studio-g--retro`) che vive nell'Embed in fondo alla sezione reel, non qui:
-senza `transform-style: preserve-3d` e `backface-visibility: hidden` le due
-lettere si vedono sovrapposte per tutto il giro.
+Il giro chiede il CSS delle facce (`.studio-cella`, `.studio-g`,
+`.studio-g--retro`) che vive nell'Embed in fondo alla sezione reel, non qui.
+Tre cose non sono decorazione e vanno lasciate stare:
+
+- `transform-style: preserve-3d` sulla casella e `backface-visibility: hidden`
+  sulle facce — senza, le due lettere si vedono sovrapposte per tutto il giro.
+- `overflow: hidden` sulle **facce**, mai sulla casella: sulla casella
+  spegnerebbe il `preserve-3d` e con lui tutto il giro. Serve perché la
+  casella si stringe mentre la lettera dentro è ancora larga, e un glifo non
+  ritagliato sborda addosso alla vicina.
+- `text-align: right` sul retro: girando su Y il mondo si specchia, e una
+  faccia scritta da sinistra si poserebbe sul bordo opposto della casella.
+
+Larghezza e giro vanno tenuti agganciati (`LARGO_DA`/`LARGO_A` sono in gradi,
+non in secondi). Sganciarli è il difetto che fa comparire uno spazio in mezzo
+alla scritta mentre cambia: l'ultima lettera di una parola si stacca dalle sue
+e sembra attaccata alla parola dopo.
 
 ### Il titolo che non balla
 

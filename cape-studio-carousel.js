@@ -731,6 +731,12 @@ function init(){
                                e qui il blocco sta già viaggiando per conto
                                suo: due movimenti in profondità insieme
                                diventano rumore. A 0 resta il giro piatto. */
+  var LARGO_DA    = 65;     /* gradi: dove la casella comincia a cambiare  */
+  var LARGO_A     = 115;    /* gradi: dove ha finito. Stretta attorno ai 90
+                               perché lì la lettera è di taglio e il cambio
+                               di misura non si vede. Allargarla riporta il
+                               difetto che aveva la prima versione: spazi
+                               che si aprono dentro la scritta mentre gira. */
 
   /* Le righe sotto non partono tutte insieme: prima la descrizione, una
      riga per volta, e il bottone per ultimo, staccato. Sono due gesti in
@@ -827,11 +833,13 @@ function init(){
 
       var gv = document.createElement('span');
       gv.className = 'studio-g'; gv.textContent = v;
-      /* Il retro porta la lettera nuova. Girarlo e allinearlo a destra e'
-         compito del CSS (.studio-g--retro): girando su Y il mondo si
-         specchia, e una faccia scritta da sinistra finirebbe appoggiata al
-         bordo opposto della casella — visibile sugli spazi, dove la casella
-         e' molto piu' larga della lettera che contiene. */
+      /* Il retro porta la lettera nuova. Girarlo, allinearlo a destra e
+         ritagliarlo alla casella e' compito del CSS (.studio-g--retro):
+         girando su Y il mondo si specchia, e una faccia scritta da sinistra
+         finirebbe appoggiata al bordo opposto della casella — visibile sugli
+         spazi, dove la casella e' molto piu' larga della lettera. Il
+         ritaglio invece sta sulle FACCE e non sulla casella: un overflow
+         sulla casella spegnerebbe il preserve-3d e con lui tutto il giro. */
       var ga = document.createElement('span');
       ga.className = 'studio-g studio-g--retro'; ga.textContent = a;
 
@@ -845,15 +853,29 @@ function init(){
       });
     }
 
+    /* La casella cambia misura mentre la lettera e' DI TAGLIO: fra questi
+       due angoli il giro la schiaccia a meno di mezza larghezza, quindi lo
+       scarto non si legge.
+
+       Ed e' legata ai GRADI, non al tempo. Con power3.out i 90 gradi cadono
+       a un quinto della corsa: una larghezza che seguisse il tempo farebbe
+       comparire la lettera nuova dentro una casella ancora larga come la
+       vecchia, e siccome la casella di fine parola porta dentro anche lo
+       stacco fra le parole, il buco si aprirebbe in mezzo alla scritta —
+       l'ultima lettera staccata dalle sue e appiccicata a quelle dopo. */
+    function misuraAl(rot){
+      var f = cl01((rot - LARGO_DA) / (LARGO_A - LARGO_DA));
+      return f * f * (3 - 2 * f);
+    }
+
     function passo(t){
       for(var k = 0; k < celle.length; k++){
         var c = celle[k];
         var q = cl01((t - k * lag) / GIRO_DUR);    /* t già in secondi di corsa */
         var e = dolce(q);
 
-        /* La larghezza segue la corsa intera e non il giro: se cambiasse a
-           scatti a metà strada, le lettere accanto scatterebbero di lato. */
-        c.box.style.width = (c.wv + (c.wa - c.wv) * e).toFixed(2) + 'px';
+        c.box.style.width =
+          (c.wv + (c.wa - c.wv) * misuraAl(e * 180)).toFixed(2) + 'px';
 
         /* Lo stacco è una campana: zero ai due estremi, massimo a mezzo
            giro — cioè esattamente quando la lettera è di taglio e non si
