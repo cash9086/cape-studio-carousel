@@ -124,6 +124,41 @@ spezzate: si impaginano le parole una per una, si legge dove cambia
 `offsetTop`, e solo allora si ricompongono le righe. L'a capo cade dove
 cadrebbe naturalmente, a qualunque larghezza.
 
+### La consegna al reel
+
+Quando il blocco `.studio-info` viene prestato alla sezione sotto — è la
+sezione reel che lo chiede, via `capeStudio.presta()` — il titolo **non esce
+per farne entrare un altro**: cambia sul posto. Ogni lettera fa mezzo giro sul
+proprio asse verticale e, mentre gira, si stacca verso chi guarda e rientra.
+La lettera nuova sta già sul retro della casella: a metà giro il fronte volta
+le spalle e quello che arriva era lì dall'inizio.
+
+Queste manopole stanno **dentro `init()`**, vicino a `tendinaTitolo()`, non nel
+blocco `IMPOSTAZIONI` in cima: valgono solo per la consegna, non per il cambio
+opera.
+
+| Manopola | Default | Cosa fa |
+|---|---|---|
+| `RITMO` | `1` | moltiplica **tutta** la consegna. È la prima da girare se sembra lenta o frettolosa |
+| `GIRO_DUR` | `0.54` | secondi di mezzo giro della singola lettera |
+| `GIRO_ONDA` | `0.38` | sfasamento **complessivo** della cascata, spalmato su tutte le lettere — non per lettera. Così un titolo lungo e uno corto ci mettono lo stesso |
+| `GIRO_STACCO` | `34` | px verso chi guarda al culmine del giro. È una campana: zero ai due estremi, massimo a metà. A `0` resta il giro piatto |
+| `TITOLO_AT` | `0.20` | quando parte il titolo, dentro l'uscita delle righe |
+| `RIGHE_PASSO` | `0.05` | secondi fra una riga della descrizione e la successiva |
+| `BOTTONE_DOPO` | `0.14` | secondi fra l'ultima riga e il bottone |
+| `RIGHE_SOTTO` | `0.12` | di quanto le righe nuove anticipano la fine del titolo |
+
+La descrizione e il bottone sono **due gesti in fila**, non uno solo più
+largo: le righe escono una per volta, il bottone parte quando la descrizione
+ha finito, e al rientro l'ordine si ripete. Per questo `collectLines()`
+espone `btn` a parte, oltre a tenerlo in coda a `info` — lì serve al cambio
+opera, dove invece le righe si muovono tutte in fila sola.
+
+Lo `0 < GIRO_STACCO` chiede il CSS delle facce (`.studio-cella`,
+`.studio-g--retro`) che vive nell'Embed in fondo alla sezione reel, non qui:
+senza `transform-style: preserve-3d` e `backface-visibility: hidden` le due
+lettere si vedono sovrapposte per tutto il giro.
+
 ### Il titolo che non balla
 
 `HEADLINE_MAX` (`0.52`) — quanta parte della larghezza della sezione può

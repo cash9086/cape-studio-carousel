@@ -227,7 +227,7 @@ function init(){
       busy  = false,
       stageW = el.stage.offsetWidth || 1,
       chars = [],
-      lines = { stats:[], info:[] },
+      lines = { stats:[], info:[], btn:null },
       descLines = [],
       autoTimer = null,
       fillTween = null,
@@ -341,7 +341,8 @@ function init(){
       });
     }
 
-    var btn = el.info.querySelector('.white-bubble-btn, .studio-btn, a, button');
+    var btn  = el.info.querySelector('.white-bubble-btn, .studio-btn, a, button');
+    var coda = btn ? wrapOuter(btn) : null;
 
     return {
       stats: el.stats
@@ -350,9 +351,13 @@ function init(){
         : [],
       info:  renderDescLines(descLines[i])
                   .map(wrapInner)
-                  .concat([ el.price ? wrapInner(el.price) : null,
-                            btn      ? wrapOuter(btn)      : null ])
-                  .filter(Boolean)
+                  .concat([ el.price ? wrapInner(el.price) : null, coda ])
+                  .filter(Boolean),
+      /* Lo stesso involucro sta anche dentro info, dove serve al cambio
+         opera: li' le righe si muovono in fila sola e il bottone e' solo
+         l'ultima. Qui e' esposto a parte perche' nella consegna al reel
+         gli tocca un tempo suo. */
+      btn: coda
     };
   }
 
@@ -689,10 +694,18 @@ function init(){
     if(el.fill) gsap.set(el.fill, { scaleX:0 });
   }
 
-  /* ── la tendina sul titolo ───────────────────────────────────────────────
+  /* ── il mezzo giro sul titolo ────────────────────────────────────────────
      Nel passaggio al reel il titolo non esce per farne entrare un altro:
-     cambia sul posto, lettera per lettera. Ognuna sale dietro il proprio
-     bordo e la nuova la segue da sotto.
+     cambia sul posto, lettera per lettera. Ognuna fa mezzo giro sul proprio
+     asse verticale e, mentre gira, si stacca verso chi guarda per poi
+     rientrare nel piano: il titolo smette di essere una scritta e diventa
+     una fila di oggetti che si voltano uno dopo l'altro.
+
+     La lettera nuova non entra da nessuna parte: sta gia' sul RETRO della
+     casella, girata di mezzo giro in CSS. A meta' corsa il fronte volta le
+     spalle, backface-visibility lo spegne, e quello che arriva era li'
+     dall'inizio. Non c'e' nessun incrocio da temporizzare fra le due
+     lettere: il cambio e' la geometria stessa del giro.
 
      Il punto delicato sono gli spazi. "WHISPER IN THE VOID" e "SHOP OUR
      PRODUCTS" hanno le parole in posizioni diverse, quindi accoppiare la
@@ -700,18 +713,30 @@ function init(){
      alle parole. Invece ogni casella si allarga o si stringe passando dalla
      misura della lettera vecchia a quella della nuova: agli estremi della
      corsa le parole tornano dritte da sole. */
-  var host = el.headline;   /* usata da passiDi e dalla tendina */
+  var host = el.headline;   /* usata da passiDi e dal mezzo giro */
 
   var RITMO       = 1;      /* moltiplica TUTTA la consegna. 0.8 la accorcia
                                di un quinto, 1.2 la allunga. È la manopola da
                                girare per prima se sembra lenta o frettolosa. */
-  var TEND_DUR    = 0.44;   /* s di corsa della singola lettera            */
-  var TEND_ONDA   = 0.30;   /* sfasamento COMPLESSIVO, spalmato su tutte le
+  var GIRO_DUR    = 0.54;   /* s di mezzo giro della singola lettera       */
+  var GIRO_ONDA   = 0.38;   /* sfasamento COMPLESSIVO, spalmato su tutte le
                                lettere — non per lettera. Con un ritardo
                                fisso a lettera un titolo lungo ci metteva il
                                doppio di uno corto, ed è il motivo per cui
                                sembrava partire in ritardo e a caso.        */
-  var TEND_STACCO = 0.50;   /* dove finisce l'uscita e comincia l'entrata  */
+  var GIRO_STACCO = 34;     /* px verso chi guarda al culmine del giro. È
+                               una campana: parte da zero, massimo a mezza
+                               corsa, torna a zero. Oltre i ~40 il titolo
+                               non si legge più come titolo ma come effetto,
+                               e qui il blocco sta già viaggiando per conto
+                               suo: due movimenti in profondità insieme
+                               diventano rumore. A 0 resta il giro piatto. */
+
+  /* Le righe sotto non partono tutte insieme: prima la descrizione, una
+     riga per volta, e il bottone per ultimo, staccato. Sono due gesti in
+     fila, non uno solo più largo. */
+  var RIGHE_PASSO  = 0.05;  /* s fra una riga della descrizione e la dopo  */
+  var BOTTONE_DOPO = 0.14;  /* s fra l'ultima riga e il bottone            */
 
   /* Le tre fasi si accavallano invece di aspettarsi: il titolo parte mentre
      le righe stanno ancora uscendo, e le righe nuove rientrano mentre
@@ -761,14 +786,15 @@ function init(){
     return largo;
   }
 
-  function corsaTendina(){ return (TEND_DUR + TEND_ONDA) * RITMO; }
+  function corsaTendina(){ return (GIRO_DUR + GIRO_ONDA) * RITMO; }
 
   function tendinaTitolo(nuovo, onDone){
     var vecchio = host.getAttribute('aria-label') || host.textContent || '';
 
-    /* L'altezza della finestra e' quella di UNA riga, non del blocco: se il
+    /* L'altezza della casella e' quella di UNA riga, non del blocco: se il
        titolo va a capo, il blocco ne misura due e ogni casella verrebbe alta
-       il doppio, con la lettera che non esce piu' dall'inquadratura. */
+       il doppio. Qui conta perche' le due facce sono alte quanto la casella:
+       e' cosi' che il retro, girato, si posa esattamente dove sta il fronte. */
     var cs0 = getComputedStyle(host);
     var alta = parseFloat(cs0.lineHeight);
     if(!alta) alta = (parseFloat(cs0.fontSize) || 0) * 1.2;
@@ -801,8 +827,13 @@ function init(){
 
       var gv = document.createElement('span');
       gv.className = 'studio-g'; gv.textContent = v;
+      /* Il retro porta la lettera nuova. Girarlo e allinearlo a destra e'
+         compito del CSS (.studio-g--retro): girando su Y il mondo si
+         specchia, e una faccia scritta da sinistra finirebbe appoggiata al
+         bordo opposto della casella — visibile sugli spazi, dove la casella
+         e' molto piu' larga della lettera che contiene. */
       var ga = document.createElement('span');
-      ga.className = 'studio-g'; ga.textContent = a;
+      ga.className = 'studio-g studio-g--retro'; ga.textContent = a;
 
       box.appendChild(gv); box.appendChild(ga);
       (parola || host).appendChild(box);
@@ -817,24 +848,28 @@ function init(){
     function passo(t){
       for(var k = 0; k < celle.length; k++){
         var c = celle[k];
-        var q  = cl01((t - k * lag) / TEND_DUR);   /* t già in secondi di corsa */
-        /* dentro la casella le due lettere non si incrociano: la vecchia
-           esce tutta, la finestra resta vuota un istante, poi entra la nuova */
-        var pv = dolce(cl01(q / TEND_STACCO));
-        var pn = dolce(cl01((q - TEND_STACCO) / (1 - TEND_STACCO)));
-        /* la larghezza invece segue la corsa intera, se no le lettere
-           accanto scatterebbero di lato a meta' strada */
-        var w  = dolce(q);
-        c.box.style.width   = (c.wv + (c.wa - c.wv) * w).toFixed(2) + 'px';
-        c.v.style.transform = 'translateY(' + (-pv * 100).toFixed(2) + '%)';
-        c.a.style.transform = 'translateY(' + ((1 - pn) * 100).toFixed(2) + '%)';
+        var q = cl01((t - k * lag) / GIRO_DUR);    /* t già in secondi di corsa */
+        var e = dolce(q);
+
+        /* La larghezza segue la corsa intera e non il giro: se cambiasse a
+           scatti a metà strada, le lettere accanto scatterebbero di lato. */
+        c.box.style.width = (c.wv + (c.wa - c.wv) * e).toFixed(2) + 'px';
+
+        /* Lo stacco è una campana: zero ai due estremi, massimo a mezzo
+           giro — cioè esattamente quando la lettera è di taglio e non si
+           legge. Il movimento in profondità si spende dove non toglie
+           niente alla lettura. */
+        c.box.style.transform =
+          'perspective(' + PERSPECTIVE + 'px) translateZ('
+          + (Math.sin(q * Math.PI) * GIRO_STACCO).toFixed(1) + 'px) rotateY('
+          + (e * 180).toFixed(2) + 'deg)';
       }
     }
 
     /* Lo sfasamento si divide fra le lettere che ci sono: la corsa totale
        del titolo è sempre la stessa, che sia lungo o corto. */
-    var lag = n > 1 ? TEND_ONDA / (n - 1) : 0;
-    var CORSA = TEND_DUR + TEND_ONDA;
+    var lag = n > 1 ? GIRO_ONDA / (n - 1) : 0;
+    var CORSA = GIRO_DUR + GIRO_ONDA;
     var prog = { t:0 };
     passo(0);
 
@@ -893,15 +928,32 @@ function init(){
       }
     });
 
-    /* 1. le righe di adesso se ne vanno dietro il proprio bordo */
+    /* La descrizione e il bottone sono due gesti, non uno: qui si separano.
+       Il bottone non e' l'ultima riga della descrizione — e' un'altra cosa,
+       e parte quando la descrizione ha finito. */
+    function senzaBottone(l){
+      return l.info.filter(function(w){ return w !== l.btn; });
+    }
+    var passoRighe = RIGHE_PASSO * R;
+    function attesaBottone(quante){
+      return passoRighe * Math.max(0, quante - 1) + BOTTONE_DOPO * R;
+    }
+
+    /* 1. le righe di adesso se ne vanno dietro il proprio bordo, una per
+          volta, e il bottone per ultimo */
     if(vecchie.stats.length) tl.to(vecchie.stats, {
       yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR * R,
       ease: 'power4.inOut', stagger: LINES_OUT_STAGGER * R
     }, 0);
-    if(vecchie.info.length) tl.to(vecchie.info, {
+
+    var righeV = senzaBottone(vecchie);
+    if(righeV.length) tl.to(righeV, {
       yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR * R,
-      ease: 'power4.inOut', stagger: LINES_OUT_STAGGER * R
+      ease: 'power4.inOut', stagger: passoRighe
     }, 0);
+    if(vecchie.btn) tl.to(vecchie.btn, {
+      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR * R, ease: 'power4.inOut'
+    }, attesaBottone(righeV.length));
 
     /* 2. il titolo gira, gia' mentre le righe stanno uscendo */
     var partenza = TITOLO_AT * R;
@@ -923,15 +975,26 @@ function init(){
         { yPercent: 0, duration: LINES_IN_DUR * R, ease: 'power4.out',
           stagger: STATS_IN_STAGGER * R, immediateRender: false, overwrite: 'auto' });
 
-      if(lines.info.length) gsap.fromTo(lines.info,
+      var righeN = senzaBottone(lines);
+
+      if(righeN.length) gsap.fromTo(righeN,
         { yPercent: LINES_IN_Y },
         { yPercent: 0, duration: LINES_IN_DUR * R, ease: 'power4.out',
-          stagger: INFO_IN_STAGGER * R, immediateRender: false, overwrite: 'auto' });
+          stagger: passoRighe, immediateRender: false, overwrite: 'auto' });
+
+      if(lines.btn) gsap.fromTo(lines.btn,
+        { yPercent: LINES_IN_Y },
+        { yPercent: 0, duration: LINES_IN_DUR * R, ease: 'power4.out',
+          delay: attesaBottone(righeN.length),
+          immediateRender: false, overwrite: 'auto' });
     }, null, rientro);
 
-    /* 4. la timeline resta viva finche' anche le righe sono entrate, se no
-          busy tornerebbe falso a meta' e l'autoplay potrebbe rientrare */
-    var coda = (LINES_IN_DUR + INFO_IN_STAGGER * 3) * R;
+    /* 4. la timeline resta viva finche' anche il bottone e' entrato, se no
+          busy tornerebbe falso a meta' e l'autoplay potrebbe rientrare.
+          Le righe della descrizione nuova sono gia' misurate: quante sono
+          lo dice descLines, senza aspettare che fill() le costruisca. */
+    var quanteN = (descLines[i] || []).length;
+    var coda = attesaBottone(quanteN) + LINES_IN_DUR * R;
     tl.to({}, { duration: coda }, rientro);
 
     return tl;
