@@ -833,13 +833,16 @@ function init(){
 
       var gv = document.createElement('span');
       gv.className = 'studio-g'; gv.textContent = v;
-      /* Il retro porta la lettera nuova. Girarlo, allinearlo a destra e
-         ritagliarlo alla casella e' compito del CSS (.studio-g--retro):
-         girando su Y il mondo si specchia, e una faccia scritta da sinistra
-         finirebbe appoggiata al bordo opposto della casella — visibile sugli
-         spazi, dove la casella e' molto piu' larga della lettera. Il
-         ritaglio invece sta sulle FACCE e non sulla casella: un overflow
-         sulla casella spegnerebbe il preserve-3d e con lui tutto il giro. */
+      /* Il retro porta la lettera nuova. Girarlo e ritagliarlo alla casella
+         e' compito del CSS (.studio-g--retro).
+
+         NON va riallineato a destra per "compensare lo specchio": il retro
+         subisce DUE mezzi giri — il suo, scritto nel CSS, e quello della
+         casella — e i due si annullano. Il testo esce dritto e la posizione
+         torna esattamente quella di partenza, la stessa del fronte. Con un
+         text-align:right la lettera resta invece appiccicata al bordo destro
+         della casella, e siccome la casella di fine parola porta dentro
+         anche lo stacco fra le parole, si legge "ACQUIR ENOW". */
       var ga = document.createElement('span');
       ga.className = 'studio-g studio-g--retro'; ga.textContent = a;
 

@@ -165,13 +165,25 @@ Tre cose non sono decorazione e vanno lasciate stare:
   spegnerebbe il `preserve-3d` e con lui tutto il giro. Serve perché la
   casella si stringe mentre la lettera dentro è ancora larga, e un glifo non
   ritagliato sborda addosso alla vicina.
-- `text-align: right` sul retro: girando su Y il mondo si specchia, e una
-  faccia scritta da sinistra si poserebbe sul bordo opposto della casella.
+- il retro va lasciato allineato **come il fronte**, cioè a sinistra. Sembra
+  che debba essere riallineato a destra per compensare lo specchio, e non è
+  vero: subisce due mezzi giri — il suo e quello della casella — che si
+  annullano. Un `text-align: right` lì appiccica la lettera al bordo destro
+  della casella, e siccome la casella di fine parola porta dentro anche lo
+  stacco fra le parole, si legge `ACQUIR ENOW` al posto di `ACQUIRE NOW`.
 
 Larghezza e giro vanno tenuti agganciati (`LARGO_DA`/`LARGO_A` sono in gradi,
 non in secondi). Sganciarli è il difetto che fa comparire uno spazio in mezzo
 alla scritta mentre cambia: l'ultima lettera di una parola si stacca dalle sue
 e sembra attaccata alla parola dopo.
+
+**Dove sta lo stacco fra le parole.** Non nel carattere spazio: `.studio-space`
+è `display: none`, e a distanziare le parole è `margin-right: .26em` su
+`.studio-word`. `passiDi()` legge le posizioni dal titolo impaginato, quindi
+quel margine finisce dentro la casella dell'**ultima lettera della parola**,
+che risulta più larga del suo glifo. È il motivo per cui l'allineamento del
+retro conta: su tutte le altre caselle, larghe quanto la lettera, un
+allineamento sbagliato non si vedrebbe affatto.
 
 ### Il titolo che non balla
 
