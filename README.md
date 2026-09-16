@@ -185,6 +185,42 @@ che risulta più larga del suo glifo. È il motivo per cui l'allineamento del
 retro conta: su tutte le altre caselle, larghe quanto la lettera, un
 allineamento sbagliato non si vedrebbe affatto.
 
+### Quando un cambio si chiude di colpo
+
+Un cambio nasce da una **soglia** — sei secondi di autoplay, oppure il bordo
+del reel che arriva a tre quarti di schermo — ma poi dura un tempo suo,
+scollegato dallo scroll. Se chi guarda intanto se n'è andato, il giro continua
+dove non lo vede nessuno: si arriva nel reel con le lettere ancora di taglio.
+Non sembra un'animazione, sembra un difetto.
+
+Due guardie, in due posti diversi, perché sanno cose diverse.
+
+**L'autoplay guarda dove sei.** Un `IntersectionObserver` sulla sezione, con
+`rootMargin: 60%`: fuori da lì l'autoplay non parte proprio, e il cambio
+d'opera che stava girando viene chiuso subito. Il margine è largo di
+proposito — la sezione esce dallo schermo mentre il blocco di testo sta
+ancora viaggiando verso il reel, e quel viaggio non va interrotto.
+
+**La consegna la chiude chi conosce il viaggio.** L'osservatore qui non c'entra:
+`capeStudio.chiudi()` la chiama il blocco nell'Embed del reel, agli estremi del
+viaggio — arrivati in fondo (`t >= 1`) o tornati su (`t <= 0`). Sul cambio
+d'opera non fa niente.
+
+Chiudere vuol dire portare ogni animazione in corso alla sua **fine**, non
+ucciderla a metà: titolo, righe e bottone si ritrovano dove sarebbero finiti
+comunque. Le animazioni nate dentro un `.call()` vengono al mondo mentre la
+chiusura è già cominciata, quindi si consuma una coda invece di scorrere un
+elenco.
+
+| Metodo | Cosa fa |
+|---|---|
+| `capeStudio.registra({title, desc, cta, price})` | registra il contenuto prestabile. Una volta sola, da fermi |
+| `capeStudio.presta(dir, secco)` | esce l'opera, entra il contenuto registrato |
+| `capeStudio.restituisci(dir, secco)` | esce il prestito, rientra l'opera, riparte l'autoplay |
+| `capeStudio.chiudi()` | porta subito alla fine la consegna in corso. Sul cambio opera non fa niente |
+| `capeStudio.occupato()` / `capeStudio.inPrestito()` | lo stato |
+| `capeStudio.nodo` | il nodo `.studio-info`, per chi lo deve muovere |
+
 ### Il titolo che non balla
 
 `HEADLINE_MAX` (`0.52`) — quanta parte della larghezza della sezione può

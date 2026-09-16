@@ -231,7 +231,40 @@ function init(){
       descLines = [],
       autoTimer = null,
       fillTween = null,
+      inVista = true,
       resizeT;
+
+  /* ── quello che sta girando adesso ────────────────────────────────────────
+     Ogni animazione di un cambio entra qui appena nasce, e serve a una cosa
+     sola: poterla chiudere di colpo.
+
+     Un cambio nasce da una soglia — sei secondi di autoplay, oppure il bordo
+     del reel che arriva a tre quarti di schermo — ma poi dura un tempo suo,
+     scollegato dallo scroll. Se chi guarda intanto se n'e' andato, il giro
+     continua dove non lo vede nessuno: si arriva nel reel con le lettere
+     ancora di taglio, e non sembra un'animazione, sembra un difetto.
+
+     Le animazioni nate dentro un .call() vengono al mondo mentre la chiusura
+     e' gia' cominciata: per questo si consuma una CODA e non si scorre un
+     elenco. La guardia e' li' perche' un ciclo infinito qui bloccherebbe la
+     pagina, non solo il carosello.
+
+     gesto dice di che cambio si tratta, perche' i due si chiudono in momenti
+     diversi e da chi sa cose diverse: l'opera quando la sezione esce dallo
+     schermo, la consegna quando il viaggio verso il reel e' finito. */
+  var vivi = [], gesto = null;
+
+  function traccia(a){ if(a) vivi.push(a); return a; }
+
+  function chiudiSubito(){
+    var guardia = 0;
+    while(vivi.length && guardia++ < 80){
+      var a = vivi.shift();
+      try{ a.progress(1); }catch(e){}
+    }
+    vivi.length = 0;
+    gesto = null;
+  }
 
 
   /* Misura dove il testo va a capo davvero, prima di spezzarlo in righe. */
@@ -497,8 +530,9 @@ function init(){
     setImg(back, stageW * (IN_SHIFT / 100) * dir, IN_SCALE);
     root.classList.add('is-busy');
 
+    gesto = 'opera';
     var prog = { t:0 };
-    var tl   = gsap.timeline();
+    var tl   = traccia(gsap.timeline());
 
     tl.to(prog, {
       t: 1,
@@ -512,12 +546,13 @@ function init(){
 
     tl.call(function(){
       fill(nextIndex);
-      entra(dir, function(){
+      traccia(entra(dir, function(){
         index = nextIndex;
         var swap = front; front = back; back = swap;
         root.classList.remove('is-busy');
         busy = false;
-      });
+        gesto = null;
+      }));
     }, null, SWAP_AT);
 
     setPager(nextIndex);
@@ -533,7 +568,9 @@ function init(){
        ma le immagini finiscono di scaricarsi dopo, e la coda del preload
        faceva ripartire l'autoplay lo stesso: sei secondi dopo arrivava
        un'opera a sovrascrivere il testo del reel. */
-    if(reduced || prestato) return;
+    /* E nemmeno quando la sezione non si vede: sei secondi passano anche
+       tre schermate piu' su, e il cambio partiva lo stesso. */
+    if(reduced || prestato || !inVista) return;
 
     if(el.fill) fillTween = gsap.to(el.fill, { scaleX:1, duration:AUTOPLAY, ease:'none' });
     autoTimer = gsap.delayedCall(AUTOPLAY, function(){ go(1); });
@@ -630,6 +667,24 @@ function init(){
     if(e.key === 'ArrowRight') navigate(1);
     if(e.key === 'ArrowLeft')  navigate(-1);
   });
+
+  /* ── l'autoplay guarda dove sei ───────────────────────────────────────────
+     Fuori schermo un cambio non lo guarda nessuno, e chi torna lo trova a
+     meta'. Qui l'autoplay si ferma quando la sezione esce, e il cambio
+     d'opera che stava girando viene chiuso di colpo.
+
+     La consegna al reel no: quella sta viaggiando proprio mentre la sezione
+     esce dallo schermo, ed e' il suo momento giusto. A chiuderla ci pensa
+     chiudi(), chiamata da chi conosce il viaggio. */
+  new IntersectionObserver(function(es){
+    inVista = es[0].isIntersecting;
+    if(inVista){
+      if(!prestato && !busy) restartAutoplay();
+      return;
+    }
+    fermaAuto();
+    if(gesto === 'opera') chiudiSubito();
+  }, { rootMargin: '60% 0px' }).observe(root);
 
   document.addEventListener('visibilitychange', function(){
     if(document.hidden){
@@ -923,6 +978,7 @@ function init(){
   function vaiA(i, dir, onDone, secco){
     if(busy) return null;
     busy = true;
+    gesto = 'consegna';
     root.classList.add('is-busy');
 
     /* Al caricamento non c'e' niente da raccontare: se la pagina apre gia'
@@ -938,6 +994,7 @@ function init(){
       if(subito.length) gsap.set(subito, { yPercent: 0, opacity: 1 });
       root.classList.remove('is-busy');
       busy = false;
+      gesto = null;
       if(onDone) onDone();
       return null;
     }
@@ -945,13 +1002,14 @@ function init(){
     var vecchie = lines;
     var R = RITMO;
 
-    var tl = gsap.timeline({
+    var tl = traccia(gsap.timeline({
       onComplete: function(){
         root.classList.remove('is-busy');
         busy = false;
+        gesto = null;
         if(onDone) onDone();
       }
-    });
+    }));
 
     /* La descrizione e il bottone sono due gesti, non uno: qui si separano.
        Il bottone non e' l'ultima riga della descrizione — e' un'altra cosa,
@@ -982,7 +1040,7 @@ function init(){
 
     /* 2. il titolo gira, gia' mentre le righe stanno uscendo */
     var partenza = TITOLO_AT * R;
-    tl.call(function(){ tendinaTitolo(opera(i).title); }, null, partenza);
+    tl.call(function(){ traccia(tendinaTitolo(opera(i).title)); }, null, partenza);
 
     /* 3. le righe nuove rientrano mentre l'ultima lettera sta ancora
           arrivando. Niente scarto fra colonne qui: nella consegna le
@@ -995,23 +1053,23 @@ function init(){
       var tutte = [].concat(lines.stats, lines.info);
       if(tutte.length) gsap.set(tutte, { yPercent: LINES_IN_Y, opacity: 1 });
 
-      if(lines.stats.length) gsap.fromTo(lines.stats,
+      if(lines.stats.length) traccia(gsap.fromTo(lines.stats,
         { yPercent: LINES_IN_Y },
         { yPercent: 0, duration: LINES_IN_DUR * R, ease: 'power4.out',
-          stagger: STATS_IN_STAGGER * R, immediateRender: false, overwrite: 'auto' });
+          stagger: STATS_IN_STAGGER * R, immediateRender: false, overwrite: 'auto' }));
 
       var righeN = senzaBottone(lines);
 
-      if(righeN.length) gsap.fromTo(righeN,
+      if(righeN.length) traccia(gsap.fromTo(righeN,
         { yPercent: LINES_IN_Y },
         { yPercent: 0, duration: LINES_IN_DUR * R, ease: 'power4.out',
-          stagger: passoRighe, immediateRender: false, overwrite: 'auto' });
+          stagger: passoRighe, immediateRender: false, overwrite: 'auto' }));
 
-      if(lines.btn) gsap.fromTo(lines.btn,
+      if(lines.btn) traccia(gsap.fromTo(lines.btn,
         { yPercent: LINES_IN_Y },
         { yPercent: 0, duration: LINES_IN_DUR * R, ease: 'power4.out',
           delay: attesaBottone(righeN.length),
-          immediateRender: false, overwrite: 'auto' });
+          immediateRender: false, overwrite: 'auto' }));
     }, null, rientro);
 
     /* 4. la timeline resta viva finche' anche il bottone e' entrato, se no
@@ -1029,6 +1087,14 @@ function init(){
     nodo:     el.info,
     occupato: function(){ return busy; },
     inPrestito: function(){ return prestato; },
+
+    /* Chiude di colpo la consegna che sta girando. La chiama chi sa che il
+       momento e' passato — il blocco del reel, agli estremi del viaggio:
+       arrivati in fondo, o tornati su. Un mezzo giro che continua dentro una
+       sezione dove non c'entra piu' niente si legge come un difetto.
+       Sul cambio d'opera non fa niente: quello ha un suo momento, e lo decide
+       l'osservatore qui sopra. */
+    chiudi: function(){ if(gesto === 'consegna') chiudiSubito(); },
 
     /* { title, desc, cta, price } — da chiamare a riposo, una volta. */
     registra: function(contenuto){
