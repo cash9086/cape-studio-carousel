@@ -124,6 +124,103 @@ spezzate: si impaginano le parole una per una, si legge dove cambia
 `offsetTop`, e solo allora si ricompongono le righe. L'a capo cade dove
 cadrebbe naturalmente, a qualunque larghezza.
 
+### La consegna al reel
+
+Quando il blocco `.studio-info` viene prestato alla sezione sotto — è la
+sezione reel che lo chiede, via `capeStudio.presta()` — il titolo **non esce
+per farne entrare un altro**: cambia sul posto. Ogni lettera fa mezzo giro sul
+proprio asse verticale e, mentre gira, si stacca verso chi guarda e rientra.
+La lettera nuova sta già sul retro della casella: a metà giro il fronte volta
+le spalle e quello che arriva era lì dall'inizio.
+
+Queste manopole stanno **dentro `init()`**, vicino a `tendinaTitolo()`, non nel
+blocco `IMPOSTAZIONI` in cima: valgono solo per la consegna, non per il cambio
+opera.
+
+| Manopola | Default | Cosa fa |
+|---|---|---|
+| `RITMO` | `1` | moltiplica **tutta** la consegna. È la prima da girare se sembra lenta o frettolosa |
+| `GIRO_DUR` | `0.54` | secondi di mezzo giro della singola lettera |
+| `GIRO_ONDA` | `0.38` | sfasamento **complessivo** della cascata, spalmato su tutte le lettere — non per lettera. Così un titolo lungo e uno corto ci mettono lo stesso |
+| `GIRO_STACCO` | `34` | px verso chi guarda al culmine del giro. È una campana: zero ai due estremi, massimo a metà. A `0` resta il giro piatto |
+| `LARGO_DA` / `LARGO_A` | `65` / `115` | i **gradi** fra cui la casella cambia misura. Stretta attorno ai 90 perché lì la lettera è di taglio: allargarla apre spazi dentro la scritta mentre gira |
+| `TITOLO_AT` | `0.20` | quando parte il titolo, dentro l'uscita delle righe |
+| `RIGHE_PASSO` | `0.05` | secondi fra una riga della descrizione e la successiva |
+| `BOTTONE_DOPO` | `0.14` | secondi fra l'ultima riga e il bottone |
+| `RIGHE_SOTTO` | `0.12` | di quanto le righe nuove anticipano la fine del titolo |
+
+La descrizione e il bottone sono **due gesti in fila**, non uno solo più
+largo: le righe escono una per volta, il bottone parte quando la descrizione
+ha finito, e al rientro l'ordine si ripete. Per questo `collectLines()`
+espone `btn` a parte, oltre a tenerlo in coda a `info` — lì serve al cambio
+opera, dove invece le righe si muovono tutte in fila sola.
+
+Il giro chiede il CSS delle facce (`.studio-cella`, `.studio-g`,
+`.studio-g--retro`) che vive nell'Embed in fondo alla sezione reel, non qui.
+Tre cose non sono decorazione e vanno lasciate stare:
+
+- `transform-style: preserve-3d` sulla casella e `backface-visibility: hidden`
+  sulle facce — senza, le due lettere si vedono sovrapposte per tutto il giro.
+- `overflow: hidden` sulle **facce**, mai sulla casella: sulla casella
+  spegnerebbe il `preserve-3d` e con lui tutto il giro. Serve perché la
+  casella si stringe mentre la lettera dentro è ancora larga, e un glifo non
+  ritagliato sborda addosso alla vicina.
+- il retro va lasciato allineato **come il fronte**, cioè a sinistra. Sembra
+  che debba essere riallineato a destra per compensare lo specchio, e non è
+  vero: subisce due mezzi giri — il suo e quello della casella — che si
+  annullano. Un `text-align: right` lì appiccica la lettera al bordo destro
+  della casella, e siccome la casella di fine parola porta dentro anche lo
+  stacco fra le parole, si legge `ACQUIR ENOW` al posto di `ACQUIRE NOW`.
+
+Larghezza e giro vanno tenuti agganciati (`LARGO_DA`/`LARGO_A` sono in gradi,
+non in secondi). Sganciarli è il difetto che fa comparire uno spazio in mezzo
+alla scritta mentre cambia: l'ultima lettera di una parola si stacca dalle sue
+e sembra attaccata alla parola dopo.
+
+**Dove sta lo stacco fra le parole.** Non nel carattere spazio: `.studio-space`
+è `display: none`, e a distanziare le parole è `margin-right: .26em` su
+`.studio-word`. `passiDi()` legge le posizioni dal titolo impaginato, quindi
+quel margine finisce dentro la casella dell'**ultima lettera della parola**,
+che risulta più larga del suo glifo. È il motivo per cui l'allineamento del
+retro conta: su tutte le altre caselle, larghe quanto la lettera, un
+allineamento sbagliato non si vedrebbe affatto.
+
+### Quando un cambio si chiude di colpo
+
+Un cambio nasce da una **soglia** — sei secondi di autoplay, oppure il bordo
+del reel che arriva a tre quarti di schermo — ma poi dura un tempo suo,
+scollegato dallo scroll. Se chi guarda intanto se n'è andato, il giro continua
+dove non lo vede nessuno: si arriva nel reel con le lettere ancora di taglio.
+Non sembra un'animazione, sembra un difetto.
+
+Due guardie, in due posti diversi, perché sanno cose diverse.
+
+**L'autoplay guarda dove sei.** Un `IntersectionObserver` sulla sezione, con
+`rootMargin: 60%`: fuori da lì l'autoplay non parte proprio, e il cambio
+d'opera che stava girando viene chiuso subito. Il margine è largo di
+proposito — la sezione esce dallo schermo mentre il blocco di testo sta
+ancora viaggiando verso il reel, e quel viaggio non va interrotto.
+
+**La consegna la chiude chi conosce il viaggio.** L'osservatore qui non c'entra:
+`capeStudio.chiudi()` la chiama il blocco nell'Embed del reel, agli estremi del
+viaggio — arrivati in fondo (`t >= 1`) o tornati su (`t <= 0`). Sul cambio
+d'opera non fa niente.
+
+Chiudere vuol dire portare ogni animazione in corso alla sua **fine**, non
+ucciderla a metà: titolo, righe e bottone si ritrovano dove sarebbero finiti
+comunque. Le animazioni nate dentro un `.call()` vengono al mondo mentre la
+chiusura è già cominciata, quindi si consuma una coda invece di scorrere un
+elenco.
+
+| Metodo | Cosa fa |
+|---|---|
+| `capeStudio.registra({title, desc, cta, price})` | registra il contenuto prestabile. Una volta sola, da fermi |
+| `capeStudio.presta(dir, secco)` | esce l'opera, entra il contenuto registrato |
+| `capeStudio.restituisci(dir, secco)` | esce il prestito, rientra l'opera, riparte l'autoplay |
+| `capeStudio.chiudi()` | porta subito alla fine la consegna in corso. Sul cambio opera non fa niente |
+| `capeStudio.occupato()` / `capeStudio.inPrestito()` | lo stato |
+| `capeStudio.nodo` | il nodo `.studio-info`, per chi lo deve muovere |
+
 ### Il titolo che non balla
 
 `HEADLINE_MAX` (`0.52`) — quanta parte della larghezza della sezione può
@@ -170,48 +267,52 @@ degli altri rimpicciolisce **tutti**. Tenerli di lunghezza simile.
 - Nessun nodo viene creato o distrutto durante il movimento: le due pagine si
   scambiano il ruolo e basta.
 
-
 ---
 
-## I gesti esposti — `window.CapeStudio`
+## I gesti prestati all'arrivo dall'inchiostro
 
-La sezione non entra più da sola: ci arriva sopra il titolo della sezione a
-inchiostro, e quando quello è al suo posto la sezione si monta. A guidare quel
-momento è un altro file, `cape-studio-consegna.js`, che però **non deve avere
-una copia dei numeri di qui**: se un domani la tendina delle righe cambia
-durata, deve cambiare in un posto solo.
+La sezione ha ora **due consegne**, e non vanno confuse.
 
-Quindi il carosello non espone dati, espone **gesti**. Chi monta la sezione
-chiede "fammi salire queste righe" e ottiene la stessa tendina del cambio
-opera. Il ritmo resta scritto nel blocco `IMPOSTAZIONI`, dove si legge tutto
-insieme.
+Quella che questo file già conosceva porta il blocco di testo **giù**, in
+prestito al reel: `presta()` e `restituisci()`. L'altra lo porta **su**: il
+titolo della sezione a inchiostro scende, si mette al posto del titolo
+dell'opera, e la sezione si monta. La guida `cape-studio-consegna.js`, nella
+repo `parallassi-slider`.
 
-| Cosa | Fa |
+A quel file servono dei gesti di qui, e la regola è la stessa del prestito al
+reel: **non si esporta un numero, si esporta il gesto.** Se un domani
+`LINES_IN_DUR` cambia nel blocco `IMPOSTAZIONI`, cambia in tutte e due le
+consegne senza che nessuno se ne debba ricordare.
+
+| Su `window.capeStudio` | Fa |
 |---|---|
-| `hold()` | ferma l'autoplay e riazzera la barra |
-| `release()` | lo fa ripartire da capo |
-| `held` | se è fermo |
-| `index` | l'opera corrente |
-| `chars` | le lettere del titolo corrente (una copia dell'array) |
-| `root` | la sezione |
-| `tendina(nodi, sfalsamento)` | fa salire dei nodi da dietro il proprio bordo, con la curva e la durata del rientro dopo un cambio opera |
-| `entrata()` | l'entrata della colonna di testo, con lo stesso sfasamento fra stats e info che hanno al cambio |
-| `sfoglia(nodo, dir)` | la scivolata del foglio, prestata a un elemento che non è una pagina del carosello: stessa curva, stesso skew che segue la velocità, stessa durata. `dir > 0` esce a destra, `dir < 0` a sinistra |
+| `sospendi()` | ferma l'autoplay e dice di non riaccenderlo finché non glielo si dice. Distinto da `fermaAuto()`, che spegne solo i timer |
+| `riprendi()` | lo riaccende, se la sezione è in vista e non è in prestito |
+| `sospeso()` | se è fermo |
+| `tendina(nodi, sfalsamento)` | fa salire dei nodi da dietro il proprio bordo, con la curva e la durata del rientro |
+| `entrataRighe()` | l'entrata della colonna di testo, con il ritmo della consegna al reel: prima la descrizione riga per riga, poi il bottone staccato |
+| `sfoglia(nodo, dir)` | la scivolata del foglio prestata a un elemento che non è una pagina del carosello. `dir > 0` esce a destra |
+| `lettere()`, `righe()`, `sezione()` | copie di quello che serve leggere |
 
-`tendina()` mette i nodi sotto il proprio bordo **al momento in cui la si
-chiama**, non quando la sua fetta di timeline comincerà a girare. È voluto:
-chi la usa tiene la sezione nascosta e la scopre subito dopo aver costruito la
-timeline, e se la partenza si applicasse più tardi ci sarebbe un fotogramma in
-cui le righe si vedono al loro posto prima di saltare giù per risalire.
+`tendina()` manda i nodi sotto il bordo **al momento della chiamata**, non
+quando la sua fetta di timeline comincerà. Chi la usa tiene la sezione
+nascosta e la scopre subito dopo aver costruito la timeline: se la partenza si
+applicasse più tardi ci sarebbe un fotogramma in cui le righe si vedono al
+loro posto prima di saltare giù per risalire.
 
-`entrata()` fa partire da zero **il primo gruppo che esiste**. La colonna delle
-statistiche è un blocco che il Designer può tenere nascosto — e oggi lo è — e
-Webflow gli elementi nascosti non li pubblica proprio: senza quella regola,
-senza statistiche l'entrata comincerebbe con quattro decimi di secondo di
-sezione ferma e vuota.
+## Il vestito delle classi generate
 
-> **Le classi che lo script si crea da solo vanno vestite nella head.** Sono
-> elencate più in alto in questo README. Senza `display:inline-block` su
-> `.studio-char` e senza una finestra che ritagli le righe, GSAP scrive
-> trasformazioni su elementi inline — e quelle il browser le ignora del tutto.
-> Non "va male": non si muove niente.
+`.studio-char`, `.studio-ln`, `.studio-win`, `.studio-cella`, `.studio-g`… non
+esistono nel Designer: le costruisce questo script. E **vanno vestite**, perché
+GSAP ci scrive trasformazioni — e una trasformazione su un elemento `inline` il
+browser la ignora del tutto. Senza `display:inline-block` il titolo non si
+sfoglia e le righe non salgono: non "male", proprio non si muovono.
+
+Misurato in pagina il 2026-09-19: `.studio-char` risultava `display:inline` e
+le righe della descrizione `clip-path:none`. Quelle regole non c'erano né nel
+Designer né nel custom code.
+
+Da qui in avanti il file **guarda** se in pagina c'è già un foglio che le veste,
+e solo se non c'è mette il suo (`vestiClassi()`, nessun `!important`). Chi ha
+già le sue regole se le tiene; chi non ne ha nessuna non resta con un carosello
+fermo.

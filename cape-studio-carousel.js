@@ -173,9 +173,65 @@ function easeInOutQuad(t){
 var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 
+/* ── il vestito delle classi che questo file si crea ──────────────────────
+   .studio-char, .studio-word, .studio-space, .studio-ln, .studio-win,
+   .studio-cella, .studio-g non esistono nel Designer: le costruisce questo
+   script. E vanno vestite, perche' GSAP ci scrive TRASFORMAZIONI — e una
+   trasformazione su un elemento inline il browser la ignora del tutto. Senza
+   display:inline-block il titolo non si sfoglia e le righe non salgono: non
+   "male", proprio non si muovono.
+
+   Non si impone niente: si GUARDA se in pagina c'e' gia' un foglio che le
+   veste, e solo se non c'e' si mette questo. Cosi' chi ha gia' le sue regole
+   — nel custom code, nel Designer, in un altro foglio — se le tiene, e chi
+   non ne ha nessuna non resta con un carosello fermo. Nessun !important, per
+   lo stesso motivo: questo e' un ripiego, non una decisione.
+
+   Il ritaglio e' clip-path e non overflow: il -100% ai lati non taglia la
+   sporgenza laterale delle lettere (la pancia della O, la coda della Q), i
+   -0.04em sopra e sotto lasciano respirare accenti e discendenti. Con
+   overflow:hidden quelle due cose non si possono avere insieme. */
+function vesteGia(){
+  var p = document.createElement('span');
+  p.className = 'studio-char';
+  p.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none';
+  document.body.appendChild(p);
+  var d = '';
+  try{ d = getComputedStyle(p).display; }catch(e){}
+  p.remove();
+  return d === 'inline-block';
+}
+
+function vestiClassi(){
+  if(document.getElementById('cape-studio-css') || vesteGia()) return;
+  var st = document.createElement('style');
+  st.id = 'cape-studio-css';
+  st.textContent = [
+    '.studio-char{display:inline-block}',
+    '.studio-word{display:inline-block;white-space:nowrap}',
+    '.studio-space{display:inline-block;white-space:pre}',
+    '.studio-ln{display:block}',
+    '[data-field="desc"] .studio-line,.studio-stats .studio-line{',
+      'display:block;clip-path:inset(-0.04em -100% -0.04em -100%)}',
+    '.studio-info .studio-win{display:inline-block;max-width:100%;vertical-align:top;',
+      'clip-path:inset(-0.04em -100% -0.04em -100%)}',
+    '.studio-info .studio-win>.studio-ln{display:inline-block}',
+    /* il mezzo giro del titolo: la casella e le sue due facce */
+    '.studio-gruppo{display:inline-block;white-space:nowrap}',
+    '.studio-cella{display:inline-block;position:relative;overflow:hidden;',
+      'vertical-align:top;transform-style:preserve-3d}',
+    '.studio-g{position:absolute;left:0;top:0;white-space:pre;',
+      'backface-visibility:hidden;-webkit-backface-visibility:hidden}',
+    '.studio-g--retro{transform:rotateY(180deg)}'
+  ].join('');
+  document.head.appendChild(st);
+}
+
 function init(){
   var root = document.querySelector(ROOT_SEL);
   if(!root || typeof gsap === 'undefined') return;
+
+  vestiClassi();
 
   gsap.config({ force3D:true });
 
@@ -213,24 +269,65 @@ function init(){
     };
   }
 
+  /* Contenuti prestati da altre sezioni della pagina: si aggiungono in coda
+     alle opere e da lì in poi sono indistinguibili da una di esse — stesse
+     misure, stesse righe, stesse animazioni. Vedi window.capeStudio in fondo. */
+  var prestato = false;   /* il blocco e' in prestito alla sezione sotto */
+  var EXTRA = [];
+  function opera(i){ return i < ARTWORKS.length ? ARTWORKS[i] : EXTRA[i - ARTWORKS.length]; }
+  function tutte(){ return ARTWORKS.concat(EXTRA); }
+
   var front = makePage(el.pageA),
       back  = makePage(el.pageB),
       index = 0,
       busy  = false,
       stageW = el.stage.offsetWidth || 1,
       chars = [],
-      lines = { stats:[], info:[] },
+      lines = { stats:[], info:[], btn:null },
       descLines = [],
       autoTimer = null,
       fillTween = null,
+      inVista = true,
       sospeso = false,
       resizeT;
+
+  /* ── quello che sta girando adesso ────────────────────────────────────────
+     Ogni animazione di un cambio entra qui appena nasce, e serve a una cosa
+     sola: poterla chiudere di colpo.
+
+     Un cambio nasce da una soglia — sei secondi di autoplay, oppure il bordo
+     del reel che arriva a tre quarti di schermo — ma poi dura un tempo suo,
+     scollegato dallo scroll. Se chi guarda intanto se n'e' andato, il giro
+     continua dove non lo vede nessuno: si arriva nel reel con le lettere
+     ancora di taglio, e non sembra un'animazione, sembra un difetto.
+
+     Le animazioni nate dentro un .call() vengono al mondo mentre la chiusura
+     e' gia' cominciata: per questo si consuma una CODA e non si scorre un
+     elenco. La guardia e' li' perche' un ciclo infinito qui bloccherebbe la
+     pagina, non solo il carosello.
+
+     gesto dice di che cambio si tratta, perche' i due si chiudono in momenti
+     diversi e da chi sa cose diverse: l'opera quando la sezione esce dallo
+     schermo, la consegna quando il viaggio verso il reel e' finito. */
+  var vivi = [], gesto = null;
+
+  function traccia(a){ if(a) vivi.push(a); return a; }
+
+  function chiudiSubito(){
+    var guardia = 0;
+    while(vivi.length && guardia++ < 80){
+      var a = vivi.shift();
+      try{ a.progress(1); }catch(e){}
+    }
+    vivi.length = 0;
+    gesto = null;
+  }
 
 
   /* Misura dove il testo va a capo davvero, prima di spezzarlo in righe. */
   function measureDesc(){
     var host = el.desc;
-    descLines = ARTWORKS.map(function(art){
+    descLines = tutte().map(function(art){
       host.textContent = '';
       var words = art.desc.trim().split(/\s+/);
       var probes = words.map(function(word, i){
@@ -334,7 +431,8 @@ function init(){
       });
     }
 
-    var btn = el.info.querySelector('.white-bubble-btn, .studio-btn, a, button');
+    var btn  = el.info.querySelector('.white-bubble-btn, .studio-btn, a, button');
+    var coda = btn ? wrapOuter(btn) : null;
 
     return {
       stats: el.stats
@@ -343,14 +441,19 @@ function init(){
         : [],
       info:  renderDescLines(descLines[i])
                   .map(wrapInner)
-                  .concat([ el.price ? wrapInner(el.price) : null,
-                            btn      ? wrapOuter(btn)      : null ])
-                  .filter(Boolean)
+                  .concat([ el.price ? wrapInner(el.price) : null, coda ])
+                  .filter(Boolean),
+      /* Lo stesso involucro sta anche dentro info, dove serve al cambio
+         opera: li' le righe si muovono in fila sola e il bottone e' solo
+         l'ultima. Qui e' esposto a parte perche' nella consegna al reel
+         gli tocca un tempo suo. */
+      btn: coda
     };
   }
 
-  function fill(i){
-    var art = ARTWORKS[i];
+  function fill(i, senzaTitolo){
+    var art = opera(i);
+    if(!art) return;
 
     if(el.year) el.year.textContent = art.year;
 
@@ -370,7 +473,7 @@ function init(){
     if(el.price){ el.price.textContent = art.price; el.price.classList.add('studio-win'); }
     if(el.cta)    el.cta.textContent = art.cta;
 
-    chars = splitTitle(art.title);
+    if(!senzaTitolo) chars = splitTitle(art.title);
     lines = collectLines(i);
   }
 
@@ -401,6 +504,73 @@ function init(){
     setImg(front, q * stageW * (OUT_SHIFT / 100) * dir, 1 + (OUT_SCALE - 1) * q);
   }
 
+  /* Uscita ed entrata del testo, estratte da go() perché possa chiamarle
+     anche chi non sta cambiando opera. dir dà il verso: da che parte se ne
+     vanno le lettere e da che parte rientrano. */
+  function esce(tl, vecchiChars, vecchieLines, dir){
+    var from = dir > 0 ? 'start' : 'end';
+
+    tl.to(vecchiChars, {
+      rotationY: TITLE_OUT_ROT * dir,
+      opacity: 0,
+      duration: TITLE_OUT_DUR,
+      ease: 'power1.in',
+      stagger: { each: TITLE_OUT_STAGGER, from: from }
+    }, TITLE_OUT_AT);
+
+    /* La colonna delle statistiche puo' non esserci: e' un blocco che il
+       Designer puo' tenere nascosto, e Webflow gli elementi nascosti non li
+       pubblica proprio. Senza questa guardia GSAP riceve un array vuoto e
+       avvisa a ogni transizione — due warning per giro, che dopo qualche
+       minuto di autoplay diventano una console illeggibile. Il carosello
+       deve funzionare con o senza quella colonna. */
+    if(vecchieLines.stats.length) tl.to(vecchieLines.stats, {
+      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR, ease: 'power4.inOut', stagger: LINES_OUT_STAGGER
+    }, LINES_OUT_AT);
+
+    if(vecchieLines.info.length) tl.to(vecchieLines.info, {
+      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR, ease: 'power4.inOut', stagger: LINES_OUT_STAGGER
+    }, LINES_OUT_AT);
+  }
+
+  /* Va chiamata dopo fill(): legge chars e lines appena ricostruiti. */
+  function entra(dir, onDone){
+    var from = dir > 0 ? 'start' : 'end';
+
+    gsap.set(chars, {
+      rotationY: TITLE_IN_ROT * dir,
+      opacity: 0,
+      transformPerspective: PERSPECTIVE,
+      transformOrigin: '0% 50%'
+    });
+    var allLines = [].concat(lines.stats, lines.info);
+    if(allLines.length) gsap.set(allLines, { yPercent: LINES_IN_Y, opacity: 1 });
+
+    var tl = gsap.timeline({ onComplete: onDone });
+
+    tl.to(chars, {
+      rotationY: 0,
+      opacity: 1,
+      duration: TITLE_IN_DUR,
+      ease: 'power3.out',
+      stagger: { each: TITLE_IN_STAGGER, from: from }
+    }, 0);
+
+    if(lines.stats.length) tl.fromTo(lines.stats,
+      { yPercent: LINES_IN_Y },
+      { yPercent: 0, duration: LINES_IN_DUR, ease: 'power4.out', stagger: STATS_IN_STAGGER,
+        immediateRender: false, overwrite: 'auto' },
+      STATS_IN_AT - SWAP_AT);
+
+    if(lines.info.length) tl.fromTo(lines.info,
+      { yPercent: LINES_IN_Y },
+      { yPercent: 0, duration: LINES_IN_DUR, ease: 'power4.out', stagger: INFO_IN_STAGGER,
+        immediateRender: false, overwrite: 'auto' },
+      INFO_IN_AT - SWAP_AT);
+
+    return tl;
+  }
+
   function go(dir){
     if(busy) return;
     busy = true;
@@ -417,9 +587,9 @@ function init(){
     setImg(back, stageW * (IN_SHIFT / 100) * dir, IN_SCALE);
     root.classList.add('is-busy');
 
-    var from = dir > 0 ? 'start' : 'end';
+    gesto = 'opera';
     var prog = { t:0 };
-    var tl   = gsap.timeline();
+    var tl   = traccia(gsap.timeline());
 
     tl.to(prog, {
       t: 1,
@@ -429,68 +599,17 @@ function init(){
       onComplete: function(){ resetPage(back); }
     }, 0);
 
-    tl.to(oldChars, {
-      rotationY: TITLE_OUT_ROT * dir,
-      opacity: 0,
-      duration: TITLE_OUT_DUR,
-      ease: 'power1.in',
-      stagger: { each: TITLE_OUT_STAGGER, from: from }
-    }, TITLE_OUT_AT);
-
-    /* La colonna delle statistiche puo' non esserci: e' un blocco che il
-       Designer puo' tenere nascosto, e Webflow gli elementi nascosti non li
-       pubblica proprio. Senza questa guardia GSAP riceve un array vuoto e
-       avvisa a ogni transizione — due warning per giro, che dopo qualche
-       minuto di autoplay diventano una console illeggibile. Il carosello
-       deve funzionare con o senza quella colonna. */
-    if(oldLines.stats.length) tl.to(oldLines.stats, {
-      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR, ease: 'power4.inOut', stagger: LINES_OUT_STAGGER
-    }, LINES_OUT_AT);
-
-    if(oldLines.info.length) tl.to(oldLines.info, {
-      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR, ease: 'power4.inOut', stagger: LINES_OUT_STAGGER
-    }, LINES_OUT_AT);
+    esce(tl, oldChars, oldLines, dir);
 
     tl.call(function(){
       fill(nextIndex);
-
-      gsap.set(chars, {
-        rotationY: TITLE_IN_ROT * dir,
-        opacity: 0,
-        transformPerspective: PERSPECTIVE,
-        transformOrigin: '0% 50%'
-      });
-      var allLines = [].concat(lines.stats, lines.info);
-      if(allLines.length) gsap.set(allLines, { yPercent: LINES_IN_Y, opacity: 1 });
-
-      var back_in = gsap.timeline({
-        onComplete: function(){
-          index = nextIndex;
-          var swap = front; front = back; back = swap;
-          root.classList.remove('is-busy');
-          busy = false;
-        }
-      });
-
-      back_in.to(chars, {
-        rotationY: 0,
-        opacity: 1,
-        duration: TITLE_IN_DUR,
-        ease: 'power3.out',
-        stagger: { each: TITLE_IN_STAGGER, from: from }
-      }, 0);
-
-      if(lines.stats.length) back_in.fromTo(lines.stats,
-        { yPercent: LINES_IN_Y },
-        { yPercent: 0, duration: LINES_IN_DUR, ease: 'power4.out', stagger: STATS_IN_STAGGER,
-          immediateRender: false, overwrite: 'auto' },
-        STATS_IN_AT - SWAP_AT);
-
-      if(lines.info.length) back_in.fromTo(lines.info,
-        { yPercent: LINES_IN_Y },
-        { yPercent: 0, duration: LINES_IN_DUR, ease: 'power4.out', stagger: INFO_IN_STAGGER,
-          immediateRender: false, overwrite: 'auto' },
-        INFO_IN_AT - SWAP_AT);
+      traccia(entra(dir, function(){
+        index = nextIndex;
+        var swap = front; front = back; back = swap;
+        root.classList.remove('is-busy');
+        busy = false;
+        gesto = null;
+      }));
     }, null, SWAP_AT);
 
     setPager(nextIndex);
@@ -501,7 +620,17 @@ function init(){
     if(autoTimer) autoTimer.kill();
     if(fillTween) fillTween.kill();
     if(el.fill) gsap.set(el.fill, { scaleX:0 });
-    if(reduced || sospeso) return;
+    /* Mentre il blocco e' prestato al reel l'autoplay deve restare fermo.
+       Se si carica la pagina gia' dentro il reel, il prestito avviene subito
+       ma le immagini finiscono di scaricarsi dopo, e la coda del preload
+       faceva ripartire l'autoplay lo stesso: sei secondi dopo arrivava
+       un'opera a sovrascrivere il testo del reel. */
+    /* E nemmeno quando la sezione non si vede: sei secondi passano anche
+       tre schermate piu' su, e il cambio partiva lo stesso. */
+    /* E nemmeno mentre la sezione si sta montando dopo l'inchiostro: un
+       cambio opera in mezzo alla consegna vorrebbe dire due titoli che si
+       contendono le stesse lettere. */
+    if(reduced || prestato || !inVista || sospeso) return;
 
     if(el.fill) fillTween = gsap.to(el.fill, { scaleX:1, duration:AUTOPLAY, ease:'none' });
     autoTimer = gsap.delayedCall(AUTOPLAY, function(){ go(1); });
@@ -536,7 +665,7 @@ function init(){
     document.body.appendChild(probe);
 
     var widest = 0;
-    ARTWORKS.forEach(function(art){
+    tutte().forEach(function(art){
       probe.textContent = art.title;
       widest = Math.max(widest, probe.offsetWidth);
     });
@@ -583,119 +712,13 @@ function init(){
     stageW = el.stage.offsetWidth || 1;
     fitHeadline();
     measureDesc();
-    if(!busy) fill(index);
+    /* index e' l'opera corrente, ma se il blocco e' prestato al reel il
+       contenuto giusto e' quello prestato. Senza questa distinzione bastava
+       che i font finissero di caricare — cosa che succede dopo il prestito,
+       se apri la pagina gia' dentro il reel — perche' fill() riportasse su
+       il testo dell'opera. */
+    if(!busy) fill(prestato ? ARTWORKS.length : index);
   }
-
-  /* ======================= LA CONSEGNA ====================================
-     La sezione non entra piu' da sola: ci arriva sopra il titolo della
-     sezione a inchiostro, e quando quello e' al suo posto la sezione si
-     monta. A guidare quel momento e' un altro file — cape-studio-consegna.js —
-     che pero' NON deve avere una copia dei numeri di qui: se un domani la
-     tendina delle righe cambia durata, deve cambiare in un posto solo.
-
-     Quindi il carosello non espone dati, espone GESTI. Chi monta la sezione
-     chiede "fammi salire queste righe" e ottiene la stessa tendina del cambio
-     opera, con la stessa curva e lo stesso sfasamento. Il ritmo resta scritto
-     nel blocco IMPOSTAZIONI, dove si legge tutto insieme.
-     ====================================================================== */
-
-  /* Ferma l'autoplay e riazzera la barra. Serve mentre le animazioni di
-     entrata girano: un cambio opera in mezzo alla consegna vorrebbe dire due
-     titoli che si contendono le stesse lettere. */
-  function hold(){
-    sospeso = true;
-    if(autoTimer) autoTimer.kill();
-    if(fillTween) fillTween.kill();
-    if(el.fill) gsap.set(el.fill, { scaleX:0 });
-  }
-
-  function release(){
-    if(!sospeso) return;
-    sospeso = false;
-    restartAutoplay();
-  }
-
-  /* Le righe salgono da dietro il proprio bordo. E' la stessa tendina del
-     rientro dopo un cambio opera: stessa curva, stessa durata, stesso punto
-     di partenza sotto il bordo. */
-  function tendina(nodes, stagger){
-    var list = nodes ? Array.prototype.slice.call(nodes.length !== undefined ? nodes : [nodes]) : [];
-    list = list.filter(Boolean);
-    var tl = gsap.timeline();
-    if(!list.length) return tl;
-    /* Le righe vanno sotto il bordo ADESSO, mentre si costruisce la
-       timeline, non quando il loro pezzo di timeline comincera' a girare.
-       Chi ci chiama tiene la sezione nascosta e la scopre subito dopo: se
-       la partenza si applicasse piu' tardi, per un fotogramma si vedrebbero
-       le righe gia' al loro posto, e poi saltare giu' per risalire. */
-    gsap.set(list, { yPercent: LINES_IN_Y });
-    return tl.to(list,
-      { yPercent: 0, duration: LINES_IN_DUR, ease: 'power4.out',
-        stagger: stagger == null ? INFO_IN_STAGGER : stagger,
-        overwrite: 'auto' });
-  }
-
-  /* L'entrata della colonna di testo, con lo stesso sfasamento fra stats e
-     info che hanno al cambio opera: l'occhio le legge nello stesso ordine.
-     Legge `lines` al momento della chiamata, non prima: cosi' rientrando
-     nella sezione fa entrare le righe dell'opera su cui il carosello e'
-     davvero rimasto. */
-  function entrata(){
-    var tl = gsap.timeline();
-    var hasS = lines.stats.length, hasI = lines.info.length;
-    if(!hasS && !hasI) return tl;
-    /* Lo sfasamento fra i due gruppi e' quello del cambio opera, ma la
-       partenza no: il primo gruppo che esiste parte a zero. La colonna delle
-       statistiche e' un blocco che il Designer puo' tenere nascosto — e oggi
-       lo e' — e Webflow gli elementi nascosti non li pubblica. Senza questa
-       riga, senza statistiche l'entrata comincerebbe con quattro decimi di
-       secondo di sezione ferma e vuota. */
-    var base = hasS ? STATS_IN_AT : INFO_IN_AT;
-    if(hasS) tl.add(tendina(lines.stats, STATS_IN_STAGGER), STATS_IN_AT - base);
-    if(hasI) tl.add(tendina(lines.info,  INFO_IN_STAGGER),  INFO_IN_AT  - base);
-    return tl;
-  }
-
-  /* La scivolata del foglio, prestata a un elemento che non e' una pagina del
-     carosello. Serve al velo bianco che copre il riquadro nella consegna: se
-     ne va con lo stesso gesto con cui entra un'immagine nuova — stessa curva,
-     stesso skew che segue la velocita', stessa durata — solo percorso al
-     contrario, verso l'uscita invece che verso il centro.
-
-     Non scala: il velo e' una tinta piatta, e una tinta piatta ingrandita e'
-     identica a se stessa. Lo zoom nel cambio opera lo fa l'immagine, non il
-     foglio.
-
-     dir > 0 esce a destra, dir < 0 a sinistra. */
-  function sfoglia(node, dir){
-    var tl = gsap.timeline();
-    if(!node) return tl;
-    var d = dir < 0 ? -1 : 1;
-    var w = el.stage.offsetWidth || stageW || 1;
-    var prog = { t:0 };
-    return tl.to(prog, {
-      t: 1, duration: SLIDE_DUR, ease: 'none',
-      onUpdate: function(){
-        var e = ease(prog.t);
-        var speed = easeSpeed(prog.t) / MAX_SPEED;
-        node.style.transform = 'translate3d(' + (e * w * d) + 'px,0,0) skewX(' + (SKEW * speed * d) + 'deg)';
-      }
-    });
-  }
-
-  window.CapeStudio = {
-    hold:    hold,
-    release: release,
-    tendina: tendina,
-    entrata: entrata,
-    sfoglia: sfoglia,
-    get held(){  return sospeso; },
-    get index(){ return index; },
-    /* Le lettere del titolo corrente. Una copia dell'array: chi la riceve non
-       deve poter riordinare il nostro. */
-    get chars(){ return chars.slice(); },
-    get root(){  return root; }
-  };
 
   onClick(el.next, 1);
   onClick(el.prev, -1);
@@ -704,6 +727,24 @@ function init(){
     if(e.key === 'ArrowRight') navigate(1);
     if(e.key === 'ArrowLeft')  navigate(-1);
   });
+
+  /* ── l'autoplay guarda dove sei ───────────────────────────────────────────
+     Fuori schermo un cambio non lo guarda nessuno, e chi torna lo trova a
+     meta'. Qui l'autoplay si ferma quando la sezione esce, e il cambio
+     d'opera che stava girando viene chiuso di colpo.
+
+     La consegna al reel no: quella sta viaggiando proprio mentre la sezione
+     esce dallo schermo, ed e' il suo momento giusto. A chiuderla ci pensa
+     chiudi(), chiamata da chi conosce il viaggio. */
+  new IntersectionObserver(function(es){
+    inVista = es[0].isIntersecting;
+    if(inVista){
+      if(!prestato && !busy) restartAutoplay();
+      return;
+    }
+    fermaAuto();
+    if(gesto === 'opera') chiudiSubito();
+  }, { rootMargin: '60% 0px' }).observe(root);
 
   document.addEventListener('visibilitychange', function(){
     if(document.hidden){
@@ -746,6 +787,507 @@ function init(){
   });
 
   if(document.fonts && document.fonts.ready) document.fonts.ready.then(remeasure);
+
+
+  /* ── il blocco in prestito ────────────────────────────────────────────────
+     La sezione sotto vuole lo stesso blocco di testo: stesso nodo, stesse
+     animazioni, contenuto diverso. Invece di rifargliele, gliele si presta.
+
+     Il contenuto va REGISTRATO una volta sola, da fermi: registra() rimisura
+     dove va a capo la descrizione, e per farlo deve svuotare il paragrafo —
+     cosa che a metà di una transizione cancellerebbe le righe in volo.
+     Da lì in poi presta() e restituisci() sono solo animazione.
+
+     Il blocco resta figlio di .studio-hero anche mentre viaggia: le regole
+     .studio-hero.is-busy ... che ritagliano le finestre delle righe sono
+     selettori di discendenza, e devono continuare a valere. */
+  function fermaAuto(){
+    if(autoTimer) autoTimer.kill();
+    if(fillTween) fillTween.kill();
+    autoTimer = null;
+    fillTween = null;
+    if(el.fill) gsap.set(el.fill, { scaleX:0 });
+  }
+
+  /* ── il mezzo giro sul titolo ────────────────────────────────────────────
+     Nel passaggio al reel il titolo non esce per farne entrare un altro:
+     cambia sul posto, lettera per lettera. Ognuna fa mezzo giro sul proprio
+     asse verticale e, mentre gira, si stacca verso chi guarda per poi
+     rientrare nel piano: il titolo smette di essere una scritta e diventa
+     una fila di oggetti che si voltano uno dopo l'altro.
+
+     La lettera nuova non entra da nessuna parte: sta gia' sul RETRO della
+     casella, girata di mezzo giro in CSS. A meta' corsa il fronte volta le
+     spalle, backface-visibility lo spegne, e quello che arriva era li'
+     dall'inizio. Non c'e' nessun incrocio da temporizzare fra le due
+     lettere: il cambio e' la geometria stessa del giro.
+
+     Il punto delicato sono gli spazi. "WHISPER IN THE VOID" e "SHOP OUR
+     PRODUCTS" hanno le parole in posizioni diverse, quindi accoppiare la
+     lettera i della vecchia con la i della nuova infila gli spazi in mezzo
+     alle parole. Invece ogni casella si allarga o si stringe passando dalla
+     misura della lettera vecchia a quella della nuova: agli estremi della
+     corsa le parole tornano dritte da sole. */
+  var host = el.headline;   /* usata da passiDi e dal mezzo giro */
+
+  var RITMO       = 1;      /* moltiplica TUTTA la consegna. 0.8 la accorcia
+                               di un quinto, 1.2 la allunga. È la manopola da
+                               girare per prima se sembra lenta o frettolosa. */
+  var GIRO_DUR    = 0.54;   /* s di mezzo giro della singola lettera       */
+  var GIRO_ONDA   = 0.38;   /* sfasamento COMPLESSIVO, spalmato su tutte le
+                               lettere — non per lettera. Con un ritardo
+                               fisso a lettera un titolo lungo ci metteva il
+                               doppio di uno corto, ed è il motivo per cui
+                               sembrava partire in ritardo e a caso.        */
+  var GIRO_STACCO = 34;     /* px verso chi guarda al culmine del giro. È
+                               una campana: parte da zero, massimo a mezza
+                               corsa, torna a zero. Oltre i ~40 il titolo
+                               non si legge più come titolo ma come effetto,
+                               e qui il blocco sta già viaggiando per conto
+                               suo: due movimenti in profondità insieme
+                               diventano rumore. A 0 resta il giro piatto. */
+  var LARGO_DA    = 65;     /* gradi: dove la casella comincia a cambiare  */
+  var LARGO_A     = 115;    /* gradi: dove ha finito. Stretta attorno ai 90
+                               perché lì la lettera è di taglio e il cambio
+                               di misura non si vede. Allargarla riporta il
+                               difetto che aveva la prima versione: spazi
+                               che si aprono dentro la scritta mentre gira. */
+
+  /* Le righe sotto non partono tutte insieme: prima la descrizione, una
+     riga per volta, e il bottone per ultimo, staccato. Sono due gesti in
+     fila, non uno solo più largo. */
+  var RIGHE_PASSO  = 0.05;  /* s fra una riga della descrizione e la dopo  */
+  var BOTTONE_DOPO = 0.14;  /* s fra l'ultima riga e il bottone            */
+
+  /* Le tre fasi si accavallano invece di aspettarsi: il titolo parte mentre
+     le righe stanno ancora uscendo, e le righe nuove rientrano mentre
+     l'ultima lettera sta ancora arrivando. Si legge lo stesso — perché a
+     muoversi sono zone diverse dello schermo — e dura molto meno. */
+  var TITOLO_AT   = 0.20;   /* quando parte il titolo, dentro l'uscita righe */
+  var RIGHE_SOTTO = 0.12;   /* di quanto le righe nuove anticipano la fine   */
+
+  function cl01(v){ return v < 0 ? 0 : (v > 1 ? 1 : v); }
+  function dolce(t){ return 1 - Math.pow(1 - t, 3); }   /* come power3.out */
+
+  /* Le larghezze non si stimano carattere per carattere: si LEGGONO dal
+     titolo davvero impaginato. Sommare i glifi non riproduce il kerning, il
+     letter-spacing negativo né il margine fra le parole, e il titolo
+     scattava di lato appena partiva la tendina.
+     Qui si misura la struttura normale — quella che splitTitle() produce —
+     una volta per il testo vecchio e una per il nuovo, e si prende come
+     larghezza di ogni casella la distanza fra una lettera e la successiva.
+     Cosi' i due estremi della corsa sono esatti per costruzione. */
+  function passiDi(testo, gia){
+    var lettere = gia || splitTitle(testo);
+    var bordo = [], k = 0, i, r;
+
+    for(i = 0; i < testo.length; i++){
+      if(testo.charAt(i) === ' '){ bordo.push(null); continue; }
+      r = lettere[k++].getBoundingClientRect();
+      bordo.push(r);
+    }
+
+    /* Uno spazio prende il bordo della lettera che lo segue: cosi' la sua
+       casella finisce per misurare esattamente lo stacco fra le parole. */
+    var sin = new Array(testo.length), prossimo = null;
+    for(i = testo.length - 1; i >= 0; i--){
+      if(bordo[i]) prossimo = bordo[i].left;
+      sin[i] = prossimo;
+    }
+
+    var fondo = host.getBoundingClientRect().right;
+    var largo = [];
+    for(i = 0; i < testo.length; i++){
+      var a = sin[i];
+      var b = (i + 1 < testo.length) ? sin[i + 1] : null;
+      if(a === null){ largo.push(0); continue; }
+      if(b === null || b < a) b = bordo[i] ? bordo[i].right : fondo;  /* fine riga o fine titolo */
+      largo.push(Math.max(0, b - a));
+    }
+    return largo;
+  }
+
+  function corsaTendina(){ return (GIRO_DUR + GIRO_ONDA) * RITMO; }
+
+  function tendinaTitolo(nuovo, onDone){
+    var vecchio = host.getAttribute('aria-label') || host.textContent || '';
+
+    /* L'altezza della casella e' quella di UNA riga, non del blocco: se il
+       titolo va a capo, il blocco ne misura due e ogni casella verrebbe alta
+       il doppio. Qui conta perche' le due facce sono alte quanto la casella:
+       e' cosi' che il retro, girato, si posa esattamente dove sta il fronte. */
+    var cs0 = getComputedStyle(host);
+    var alta = parseFloat(cs0.lineHeight);
+    if(!alta) alta = (parseFloat(cs0.fontSize) || 0) * 1.2;
+
+    var largoV = passiDi(vecchio, chars);   /* il vecchio e' gia' impaginato */
+    var largoA = passiDi(nuovo);            /* il nuovo lo impagina qui      */
+
+    host.textContent = '';
+    host.setAttribute('aria-label', nuovo);
+
+    var n = Math.max(vecchio.length, nuovo.length), celle = [], i;
+    var parola = null;
+
+    for(i = 0; i < n; i++){
+      var v = vecchio.charAt(i), a = nuovo.charAt(i);
+
+      if(a === ' ' || a === ''){
+        parola = null;                     /* qui la riga puo' spezzarsi */
+      } else if(!parola){
+        parola = document.createElement('span');
+        parola.className = 'studio-gruppo';
+        parola.setAttribute('aria-hidden', 'true');
+        host.appendChild(parola);
+      }
+
+      var box = document.createElement('span');
+      box.className = 'studio-cella';
+      box.setAttribute('aria-hidden', 'true');
+      box.style.height = alta + 'px';
+
+      var gv = document.createElement('span');
+      gv.className = 'studio-g'; gv.textContent = v;
+      /* Il retro porta la lettera nuova. Girarlo e ritagliarlo alla casella
+         e' compito del CSS (.studio-g--retro).
+
+         NON va riallineato a destra per "compensare lo specchio": il retro
+         subisce DUE mezzi giri — il suo, scritto nel CSS, e quello della
+         casella — e i due si annullano. Il testo esce dritto e la posizione
+         torna esattamente quella di partenza, la stessa del fronte. Con un
+         text-align:right la lettera resta invece appiccicata al bordo destro
+         della casella, e siccome la casella di fine parola porta dentro
+         anche lo stacco fra le parole, si legge "ACQUIR ENOW". */
+      var ga = document.createElement('span');
+      ga.className = 'studio-g studio-g--retro'; ga.textContent = a;
+
+      box.appendChild(gv); box.appendChild(ga);
+      (parola || host).appendChild(box);
+
+      celle.push({
+        box: box, v: gv, a: ga,
+        wv: largoV[i] || 0,
+        wa: largoA[i] || 0
+      });
+    }
+
+    /* La casella cambia misura mentre la lettera e' DI TAGLIO: fra questi
+       due angoli il giro la schiaccia a meno di mezza larghezza, quindi lo
+       scarto non si legge.
+
+       Ed e' legata ai GRADI, non al tempo. Con power3.out i 90 gradi cadono
+       a un quinto della corsa: una larghezza che seguisse il tempo farebbe
+       comparire la lettera nuova dentro una casella ancora larga come la
+       vecchia, e siccome la casella di fine parola porta dentro anche lo
+       stacco fra le parole, il buco si aprirebbe in mezzo alla scritta —
+       l'ultima lettera staccata dalle sue e appiccicata a quelle dopo. */
+    function misuraAl(rot){
+      var f = cl01((rot - LARGO_DA) / (LARGO_A - LARGO_DA));
+      return f * f * (3 - 2 * f);
+    }
+
+    function passo(t){
+      for(var k = 0; k < celle.length; k++){
+        var c = celle[k];
+        var q = cl01((t - k * lag) / GIRO_DUR);    /* t già in secondi di corsa */
+        var e = dolce(q);
+
+        c.box.style.width =
+          (c.wv + (c.wa - c.wv) * misuraAl(e * 180)).toFixed(2) + 'px';
+
+        /* Lo stacco è una campana: zero ai due estremi, massimo a mezzo
+           giro — cioè esattamente quando la lettera è di taglio e non si
+           legge. Il movimento in profondità si spende dove non toglie
+           niente alla lettura. */
+        c.box.style.transform =
+          'perspective(' + PERSPECTIVE + 'px) translateZ('
+          + (Math.sin(q * Math.PI) * GIRO_STACCO).toFixed(1) + 'px) rotateY('
+          + (e * 180).toFixed(2) + 'deg)';
+      }
+    }
+
+    /* Lo sfasamento si divide fra le lettere che ci sono: la corsa totale
+       del titolo è sempre la stessa, che sia lungo o corto. */
+    var lag = n > 1 ? GIRO_ONDA / (n - 1) : 0;
+    var CORSA = GIRO_DUR + GIRO_ONDA;
+    var prog = { t:0 };
+    passo(0);
+
+    return gsap.to(prog, {
+      t: 1,
+      duration: CORSA * RITMO,
+      ease: 'none',
+      onUpdate: function(){ passo(prog.t * CORSA); },
+      onComplete: function(){
+        /* si torna alla struttura di sempre: da qui in poi il titolo e' di
+           nuovo fatto di .studio-char, e go() lo sa animare come prima */
+        chars = splitTitle(nuovo);
+        gsap.set(chars, {
+          rotationY: 0, opacity: 1,
+          transformPerspective: PERSPECTIVE, transformOrigin: '0% 50%'
+        });
+        if(onDone) onDone();
+      }
+    });
+  }
+
+  /* Le tre fasi si accavallano appena, invece di aspettarsi in fila: e' la
+     differenza fra una consegna che dura 2,2 secondi e una che ne dura 1,4.
+     Si legge lo stesso perche' a muoversi sono zone diverse dello schermo —
+     prima le righe in basso, poi il titolo, poi di nuovo le righe. */
+  function vaiA(i, dir, onDone, secco){
+    if(busy) return null;
+    busy = true;
+    gesto = 'consegna';
+    root.classList.add('is-busy');
+
+    /* Al caricamento non c'e' niente da raccontare: se la pagina apre gia'
+       dentro il reel, il testo giusto ci deve essere e basta. Animare un
+       cambio che nessuno ha visto cominciare sembra solo un difetto. */
+    if(secco){
+      fill(i);
+      gsap.set(chars, {
+        rotationY: 0, opacity: 1,
+        transformPerspective: PERSPECTIVE, transformOrigin: '0% 50%'
+      });
+      var subito = [].concat(lines.stats, lines.info);
+      if(subito.length) gsap.set(subito, { yPercent: 0, opacity: 1 });
+      root.classList.remove('is-busy');
+      busy = false;
+      gesto = null;
+      if(onDone) onDone();
+      return null;
+    }
+
+    var vecchie = lines;
+    var R = RITMO;
+
+    var tl = traccia(gsap.timeline({
+      onComplete: function(){
+        root.classList.remove('is-busy');
+        busy = false;
+        gesto = null;
+        if(onDone) onDone();
+      }
+    }));
+
+    /* La descrizione e il bottone sono due gesti, non uno: qui si separano.
+       Il bottone non e' l'ultima riga della descrizione — e' un'altra cosa,
+       e parte quando la descrizione ha finito. */
+    function senzaBottone(l){
+      return l.info.filter(function(w){ return w !== l.btn; });
+    }
+    var passoRighe = RIGHE_PASSO * R;
+    function attesaBottone(quante){
+      return passoRighe * Math.max(0, quante - 1) + BOTTONE_DOPO * R;
+    }
+
+    /* 1. le righe di adesso se ne vanno dietro il proprio bordo, una per
+          volta, e il bottone per ultimo */
+    if(vecchie.stats.length) tl.to(vecchie.stats, {
+      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR * R,
+      ease: 'power4.inOut', stagger: LINES_OUT_STAGGER * R
+    }, 0);
+
+    var righeV = senzaBottone(vecchie);
+    if(righeV.length) tl.to(righeV, {
+      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR * R,
+      ease: 'power4.inOut', stagger: passoRighe
+    }, 0);
+    if(vecchie.btn) tl.to(vecchie.btn, {
+      yPercent: LINES_OUT_Y, duration: LINES_OUT_DUR * R, ease: 'power4.inOut'
+    }, attesaBottone(righeV.length));
+
+    /* 2. il titolo gira, gia' mentre le righe stanno uscendo */
+    var partenza = TITOLO_AT * R;
+    tl.call(function(){ traccia(tendinaTitolo(opera(i).title)); }, null, partenza);
+
+    /* 3. le righe nuove rientrano mentre l'ultima lettera sta ancora
+          arrivando. Niente scarto fra colonne qui: nella consegna le
+          statistiche sono nascoste, quel ritardo lascerebbe solo un buco. */
+    var rientro = Math.max(0, partenza + corsaTendina() - RIGHE_SOTTO * R);
+
+    tl.call(function(){
+      fill(i, true);   /* righe nuove; il titolo l'ha gia' messo la tendina */
+
+      var tutte = [].concat(lines.stats, lines.info);
+      if(tutte.length) gsap.set(tutte, { yPercent: LINES_IN_Y, opacity: 1 });
+
+      if(lines.stats.length) traccia(gsap.fromTo(lines.stats,
+        { yPercent: LINES_IN_Y },
+        { yPercent: 0, duration: LINES_IN_DUR * R, ease: 'power4.out',
+          stagger: STATS_IN_STAGGER * R, immediateRender: false, overwrite: 'auto' }));
+
+      var righeN = senzaBottone(lines);
+
+      if(righeN.length) traccia(gsap.fromTo(righeN,
+        { yPercent: LINES_IN_Y },
+        { yPercent: 0, duration: LINES_IN_DUR * R, ease: 'power4.out',
+          stagger: passoRighe, immediateRender: false, overwrite: 'auto' }));
+
+      if(lines.btn) traccia(gsap.fromTo(lines.btn,
+        { yPercent: LINES_IN_Y },
+        { yPercent: 0, duration: LINES_IN_DUR * R, ease: 'power4.out',
+          delay: attesaBottone(righeN.length),
+          immediateRender: false, overwrite: 'auto' }));
+    }, null, rientro);
+
+    /* 4. la timeline resta viva finche' anche il bottone e' entrato, se no
+          busy tornerebbe falso a meta' e l'autoplay potrebbe rientrare.
+          Le righe della descrizione nuova sono gia' misurate: quante sono
+          lo dice descLines, senza aspettare che fill() le costruisca. */
+    var quanteN = (descLines[i] || []).length;
+    var coda = attesaBottone(quanteN) + LINES_IN_DUR * R;
+    tl.to({}, { duration: coda }, rientro);
+
+    return tl;
+  }
+
+  /* ── i gesti prestati all'arrivo dall'inchiostro ──────────────────────────
+     La sezione ha adesso DUE consegne, e non vanno confuse.
+
+     Quella che questo file gia' conosceva porta il blocco di testo GIU', in
+     prestito al reel: presta() e restituisci(), qui sopra. L'altra lo porta
+     SU: il titolo della sezione a inchiostro scende, si mette al posto del
+     titolo dell'opera, e la sezione si monta. La guida cape-studio-consegna.js.
+
+     A quel file servono dei gesti di qui — la tendina delle righe, la
+     scivolata del foglio — e la regola e' la stessa del prestito al reel:
+     non si esporta un numero, si esporta il gesto. Se un domani LINES_IN_DUR
+     cambia nel blocco IMPOSTAZIONI, cambia in tutte e due le consegne senza
+     che nessuno se ne debba ricordare.                                    */
+
+  /* L'autoplay si ferma mentre l'arrivo si monta. E' distinto da fermaAuto():
+     quello spegne i timer, questo dice anche di non riaccenderli finche' non
+     glielo si dice. */
+  function sospendi(){
+    sospeso = true;
+    fermaAuto();
+  }
+
+  function riprendi(){
+    if(!sospeso) return;
+    sospeso = false;
+    if(!reduced && !prestato && inVista) restartAutoplay();
+  }
+
+  /* Delle righe salgono da dietro il proprio bordo: la stessa tendina del
+     rientro, stessa curva e stessa durata.
+
+     Le manda sotto il bordo ADESSO, mentre si costruisce la timeline, non
+     quando la sua fetta comincera' a girare: chi la usa tiene la sezione
+     nascosta e la scopre subito dopo aver costruito tutto, e se la partenza
+     si applicasse piu' tardi ci sarebbe un fotogramma in cui le righe si
+     vedono al loro posto prima di saltare giu' per risalire. */
+  function tendina(nodi, sfalsamento){
+    var lista = nodi ? Array.prototype.slice.call(nodi.length !== undefined ? nodi : [nodi]) : [];
+    lista = lista.filter(Boolean);
+    var tl = gsap.timeline();
+    if(!lista.length) return tl;
+    gsap.set(lista, { yPercent: LINES_IN_Y, opacity: 1 });
+    return tl.to(lista, {
+      yPercent: 0, duration: LINES_IN_DUR * RITMO, ease: 'power4.out',
+      stagger: sfalsamento == null ? RIGHE_PASSO * RITMO : sfalsamento,
+      overwrite: 'auto'
+    });
+  }
+
+  /* L'entrata della colonna di testo, con lo stesso ritmo della consegna al
+     reel: prima la descrizione una riga per volta, poi il bottone staccato.
+     Sono due gesti in fila, non uno solo piu' largo — e quel distacco e' la
+     differenza fra un blocco che si monta e uno che compare.
+
+     Legge `lines` al momento della chiamata: cosi' rientrando nella sezione
+     fa entrare le righe dell'opera su cui il carosello e' davvero rimasto. */
+  function entrataRighe(){
+    var tl = gsap.timeline();
+    var righe = lines.info.filter(function(w){ return w !== lines.btn; });
+    var passo = RIGHE_PASSO * RITMO;
+    if(lines.stats.length) tl.add(tendina(lines.stats, STATS_IN_STAGGER * RITMO), 0);
+    if(righe.length)       tl.add(tendina(righe, passo), 0);
+    if(lines.btn)          tl.add(tendina([lines.btn], 0),
+                                  passo * Math.max(0, righe.length - 1) + BOTTONE_DOPO * RITMO);
+    return tl;
+  }
+
+  /* La scivolata del foglio, prestata a un elemento che non e' una pagina del
+     carosello: nell'arrivo serve al velo bianco che copre il riquadro, che se
+     ne va con lo stesso gesto con cui entra un'immagine nuova — stessa curva,
+     stesso skew che segue la velocita', stessa durata — solo percorso verso
+     l'uscita invece che verso il centro.
+
+     Non scala: il velo e' una tinta piatta, e una tinta piatta ingrandita e'
+     identica a se stessa. Lo zoom nel cambio opera lo fa l'immagine, non il
+     foglio.  dir > 0 esce a destra, dir < 0 a sinistra. */
+  function sfoglia(nodo, dir){
+    var tl = gsap.timeline();
+    if(!nodo) return tl;
+    var d = dir < 0 ? -1 : 1;
+    var w = el.stage.offsetWidth || stageW || 1;
+    var prog = { t:0 };
+    return tl.to(prog, {
+      t: 1, duration: SLIDE_DUR, ease: 'none',
+      onUpdate: function(){
+        var e = ease(prog.t);
+        var v = easeSpeed(prog.t) / MAX_SPEED;
+        nodo.style.transform = 'translate3d(' + (e * w * d) + 'px,0,0) skewX(' + (SKEW * v * d) + 'deg)';
+      }
+    });
+  }
+
+  window.capeStudio = {
+    nodo:     el.info,
+    occupato: function(){ return busy; },
+    inPrestito: function(){ return prestato; },
+
+    /* ——— l'arrivo dall'inchiostro ——————————————————————————————— */
+    sospendi:     sospendi,
+    riprendi:     riprendi,
+    sospeso:      function(){ return sospeso; },
+    tendina:      tendina,
+    entrataRighe: entrataRighe,
+    sfoglia:      sfoglia,
+    /* copie: chi le riceve non deve poter riordinare le nostre */
+    lettere:      function(){ return chars.slice(); },
+    righe:        function(){ return { stats: lines.stats.slice(), info: lines.info.slice(), btn: lines.btn }; },
+    sezione:      function(){ return root; },
+
+    /* Chiude di colpo la consegna che sta girando. La chiama chi sa che il
+       momento e' passato — il blocco del reel, agli estremi del viaggio:
+       arrivati in fondo, o tornati su. Un mezzo giro che continua dentro una
+       sezione dove non c'entra piu' niente si legge come un difetto.
+       Sul cambio d'opera non fa niente: quello ha un suo momento, e lo decide
+       l'osservatore qui sopra. */
+    chiudi: function(){ if(gesto === 'consegna') chiudiSubito(); },
+
+    /* { title, desc, cta, price } — da chiamare a riposo, una volta. */
+    registra: function(contenuto){
+      if(!contenuto) return;
+      EXTRA = [contenuto];
+      measureDesc();
+      fitHeadline();
+      if(!busy) fill(index);
+    },
+
+    /* Esce l'opera, entra il contenuto registrato. */
+    presta: function(dir, secco){
+      if(prestato || busy || !EXTRA.length) return null;
+      fermaAuto();
+      prestato = true;
+      return vaiA(ARTWORKS.length, dir === undefined ? 1 : dir, null, secco);
+    },
+
+    /* Esce il contenuto prestato, rientra l'opera, riparte l'autoplay. */
+    restituisci: function(dir, secco){
+      if(!prestato || busy) return null;
+      prestato = false;
+      return vaiA(index, dir === undefined ? -1 : dir, function(){
+        if(!reduced) restartAutoplay();
+      }, secco);
+    }
+  };
+
+  document.dispatchEvent(new CustomEvent('cape:studio-ready'));
 }
 
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
