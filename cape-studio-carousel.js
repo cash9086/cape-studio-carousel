@@ -223,6 +223,7 @@ function init(){
       descLines = [],
       autoTimer = null,
       fillTween = null,
+      sospeso = false,
       resizeT;
 
 
@@ -500,7 +501,7 @@ function init(){
     if(autoTimer) autoTimer.kill();
     if(fillTween) fillTween.kill();
     if(el.fill) gsap.set(el.fill, { scaleX:0 });
-    if(reduced) return;
+    if(reduced || sospeso) return;
 
     if(el.fill) fillTween = gsap.to(el.fill, { scaleX:1, duration:AUTOPLAY, ease:'none' });
     autoTimer = gsap.delayedCall(AUTOPLAY, function(){ go(1); });
@@ -584,6 +585,117 @@ function init(){
     measureDesc();
     if(!busy) fill(index);
   }
+
+  /* ======================= LA CONSEGNA ====================================
+     La sezione non entra piu' da sola: ci arriva sopra il titolo della
+     sezione a inchiostro, e quando quello e' al suo posto la sezione si
+     monta. A guidare quel momento e' un altro file — cape-studio-consegna.js —
+     che pero' NON deve avere una copia dei numeri di qui: se un domani la
+     tendina delle righe cambia durata, deve cambiare in un posto solo.
+
+     Quindi il carosello non espone dati, espone GESTI. Chi monta la sezione
+     chiede "fammi salire queste righe" e ottiene la stessa tendina del cambio
+     opera, con la stessa curva e lo stesso sfasamento. Il ritmo resta scritto
+     nel blocco IMPOSTAZIONI, dove si legge tutto insieme.
+     ====================================================================== */
+
+  /* Ferma l'autoplay e riazzera la barra. Serve mentre le animazioni di
+     entrata girano: un cambio opera in mezzo alla consegna vorrebbe dire due
+     titoli che si contendono le stesse lettere. */
+  function hold(){
+    sospeso = true;
+    if(autoTimer) autoTimer.kill();
+    if(fillTween) fillTween.kill();
+    if(el.fill) gsap.set(el.fill, { scaleX:0 });
+  }
+
+  function release(){
+    if(!sospeso) return;
+    sospeso = false;
+    restartAutoplay();
+  }
+
+  /* Le righe salgono da dietro il proprio bordo. E' la stessa tendina del
+     rientro dopo un cambio opera: stessa curva, stessa durata, stesso punto
+     di partenza sotto il bordo. */
+  function tendina(nodes, stagger){
+    var list = nodes ? Array.prototype.slice.call(nodes.length !== undefined ? nodes : [nodes]) : [];
+    list = list.filter(Boolean);
+    var tl = gsap.timeline();
+    if(!list.length) return tl;
+    /* Le righe vanno sotto il bordo ADESSO, mentre si costruisce la
+       timeline, non quando il loro pezzo di timeline comincera' a girare.
+       Chi ci chiama tiene la sezione nascosta e la scopre subito dopo: se
+       la partenza si applicasse piu' tardi, per un fotogramma si vedrebbero
+       le righe gia' al loro posto, e poi saltare giu' per risalire. */
+    gsap.set(list, { yPercent: LINES_IN_Y });
+    return tl.to(list,
+      { yPercent: 0, duration: LINES_IN_DUR, ease: 'power4.out',
+        stagger: stagger == null ? INFO_IN_STAGGER : stagger,
+        overwrite: 'auto' });
+  }
+
+  /* L'entrata della colonna di testo, con lo stesso sfasamento fra stats e
+     info che hanno al cambio opera: l'occhio le legge nello stesso ordine.
+     Legge `lines` al momento della chiamata, non prima: cosi' rientrando
+     nella sezione fa entrare le righe dell'opera su cui il carosello e'
+     davvero rimasto. */
+  function entrata(){
+    var tl = gsap.timeline();
+    var hasS = lines.stats.length, hasI = lines.info.length;
+    if(!hasS && !hasI) return tl;
+    /* Lo sfasamento fra i due gruppi e' quello del cambio opera, ma la
+       partenza no: il primo gruppo che esiste parte a zero. La colonna delle
+       statistiche e' un blocco che il Designer puo' tenere nascosto — e oggi
+       lo e' — e Webflow gli elementi nascosti non li pubblica. Senza questa
+       riga, senza statistiche l'entrata comincerebbe con quattro decimi di
+       secondo di sezione ferma e vuota. */
+    var base = hasS ? STATS_IN_AT : INFO_IN_AT;
+    if(hasS) tl.add(tendina(lines.stats, STATS_IN_STAGGER), STATS_IN_AT - base);
+    if(hasI) tl.add(tendina(lines.info,  INFO_IN_STAGGER),  INFO_IN_AT  - base);
+    return tl;
+  }
+
+  /* La scivolata del foglio, prestata a un elemento che non e' una pagina del
+     carosello. Serve al velo bianco che copre il riquadro nella consegna: se
+     ne va con lo stesso gesto con cui entra un'immagine nuova — stessa curva,
+     stesso skew che segue la velocita', stessa durata — solo percorso al
+     contrario, verso l'uscita invece che verso il centro.
+
+     Non scala: il velo e' una tinta piatta, e una tinta piatta ingrandita e'
+     identica a se stessa. Lo zoom nel cambio opera lo fa l'immagine, non il
+     foglio.
+
+     dir > 0 esce a destra, dir < 0 a sinistra. */
+  function sfoglia(node, dir){
+    var tl = gsap.timeline();
+    if(!node) return tl;
+    var d = dir < 0 ? -1 : 1;
+    var w = el.stage.offsetWidth || stageW || 1;
+    var prog = { t:0 };
+    return tl.to(prog, {
+      t: 1, duration: SLIDE_DUR, ease: 'none',
+      onUpdate: function(){
+        var e = ease(prog.t);
+        var speed = easeSpeed(prog.t) / MAX_SPEED;
+        node.style.transform = 'translate3d(' + (e * w * d) + 'px,0,0) skewX(' + (SKEW * speed * d) + 'deg)';
+      }
+    });
+  }
+
+  window.CapeStudio = {
+    hold:    hold,
+    release: release,
+    tendina: tendina,
+    entrata: entrata,
+    sfoglia: sfoglia,
+    get held(){  return sospeso; },
+    get index(){ return index; },
+    /* Le lettere del titolo corrente. Una copia dell'array: chi la riceve non
+       deve poter riordinare il nostro. */
+    get chars(){ return chars.slice(); },
+    get root(){  return root; }
+  };
 
   onClick(el.next, 1);
   onClick(el.prev, -1);

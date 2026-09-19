@@ -169,3 +169,49 @@ degli altri rimpicciolisce **tutti**. Tenerli di lunghezza simile.
   paga compositing.
 - Nessun nodo viene creato o distrutto durante il movimento: le due pagine si
   scambiano il ruolo e basta.
+
+
+---
+
+## I gesti esposti — `window.CapeStudio`
+
+La sezione non entra più da sola: ci arriva sopra il titolo della sezione a
+inchiostro, e quando quello è al suo posto la sezione si monta. A guidare quel
+momento è un altro file, `cape-studio-consegna.js`, che però **non deve avere
+una copia dei numeri di qui**: se un domani la tendina delle righe cambia
+durata, deve cambiare in un posto solo.
+
+Quindi il carosello non espone dati, espone **gesti**. Chi monta la sezione
+chiede "fammi salire queste righe" e ottiene la stessa tendina del cambio
+opera. Il ritmo resta scritto nel blocco `IMPOSTAZIONI`, dove si legge tutto
+insieme.
+
+| Cosa | Fa |
+|---|---|
+| `hold()` | ferma l'autoplay e riazzera la barra |
+| `release()` | lo fa ripartire da capo |
+| `held` | se è fermo |
+| `index` | l'opera corrente |
+| `chars` | le lettere del titolo corrente (una copia dell'array) |
+| `root` | la sezione |
+| `tendina(nodi, sfalsamento)` | fa salire dei nodi da dietro il proprio bordo, con la curva e la durata del rientro dopo un cambio opera |
+| `entrata()` | l'entrata della colonna di testo, con lo stesso sfasamento fra stats e info che hanno al cambio |
+| `sfoglia(nodo, dir)` | la scivolata del foglio, prestata a un elemento che non è una pagina del carosello: stessa curva, stesso skew che segue la velocità, stessa durata. `dir > 0` esce a destra, `dir < 0` a sinistra |
+
+`tendina()` mette i nodi sotto il proprio bordo **al momento in cui la si
+chiama**, non quando la sua fetta di timeline comincerà a girare. È voluto:
+chi la usa tiene la sezione nascosta e la scopre subito dopo aver costruito la
+timeline, e se la partenza si applicasse più tardi ci sarebbe un fotogramma in
+cui le righe si vedono al loro posto prima di saltare giù per risalire.
+
+`entrata()` fa partire da zero **il primo gruppo che esiste**. La colonna delle
+statistiche è un blocco che il Designer può tenere nascosto — e oggi lo è — e
+Webflow gli elementi nascosti non li pubblica proprio: senza quella regola,
+senza statistiche l'entrata comincerebbe con quattro decimi di secondo di
+sezione ferma e vuota.
+
+> **Le classi che lo script si crea da solo vanno vestite nella head.** Sono
+> elencate più in alto in questo README. Senza `display:inline-block` su
+> `.studio-char` e senza una finestra che ritagli le righe, GSAP scrive
+> trasformazioni su elementi inline — e quelle il browser le ignora del tutto.
+> Non "va male": non si muove niente.
